@@ -6,6 +6,27 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Scenes/BasicScene.unity
+    guid: 4e9fef26e6adb88479ad1b9834a32d94
+  - enabled: 1
+    path: Assets/Scenes/Worlds/HauntedForest.unity
+    guid: 86e0bff1cbf384dbcad955fa705ebcd8
+  - enabled: 1
+    path: Assets/Scenes/Worlds/SunkenDepths.unity
+    guid: 22fea2d6067b84d51bc8c3f81d8d8152
+  - enabled: 1
+    path: Assets/Scenes/Worlds/CandyForest.unity
+    guid: 765024c56d17f47deae81d136903acdf
+  - enabled: 1
+    path: Assets/Scenes/Worlds/ClockworkMoon.unity
+    guid: 19e5cdb901f544e4bb9af576bdb83cb6
+  - enabled: 1
+    path: Assets/Scenes/Worlds/CrystalCaverns.unity
+    guid: 1fd5e8eb1c8f74fbba614e1a1c1a5d82
+  - enabled: 1
+    path: Assets/Scenes/Worlds/UpsideDownCity.unity
+    guid: 28505817d17f245eab610096d8c8cbbd
+  - enabled: 1
     path: Assets/Scenes/SampleScene.unity
     guid: 55daccc09a3b69647bbab145b54a3ab3
   m_configObjects:
@@ -18,4 +39,3 @@ EditorBuildSettings:
     com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: 908d62378b8205449861e5838a18a596, type: 2}
     com.unity.xr.management.loader_settings: {fileID: 11400000, guid: 4b3de149e50ea0c4f8ad04c79b9f12ec, type: 2}
     com.unity.xr.openxr.settings4: {fileID: 11400000, guid: 3dd11dcd12272e54f8a19d8224e35f53, type: 2}
-  m_UseUCBPForAssetBundles: 0
