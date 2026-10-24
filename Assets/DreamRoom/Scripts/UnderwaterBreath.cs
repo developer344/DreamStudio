@@ -40,7 +40,7 @@ namespace DreamStudio
 
             if (world != null && world.IsDream)
             {
-                if (!CanBreathe && hud != null)
+                if (!CanBreathe && hud != null && !world.ArrivedRestored)
                 {
                     hud.SetTint(Color.clear, 0f);
                     hud.SetStatus("AIR  FULL", new Color(0.6f, 1f, 0.95f));

@@ -23,6 +23,7 @@ namespace DreamStudio
         [TextArea] public string introMessage;
         [TextArea] public string dreamMessage;
         [TextArea] public string arrivedHomeMessage = "Step through the portal to return to the Portal Room.";
+        [TextArea] public string revisitMessage = "This dream is already restored.\nWander as long as you like.\nThe way home waits where you started.";
 
         [Header("Player")]
         public Transform spawnPoint;
@@ -42,6 +43,9 @@ namespace DreamStudio
         public UnityEvent onDreamRestored;
 
         public bool IsDream { get; private set; }
+
+        /// <summary>True when the world was restored on an earlier visit and so opened straight into the dream.</summary>
+        public bool ArrivedRestored { get; private set; }
         public bool IsWakingUp { get; private set; }
 
         /// <summary>Raised once the player has been put back at the spawn point by <see cref="WakeUp"/>.</summary>
@@ -65,6 +69,12 @@ namespace DreamStudio
         {
             Instance = this;
 
+            if (IsRestored(gameObject.scene.name))
+            {
+                OpenAsDream();
+                return;
+            }
+
             foreach (var go in dreamOnly)
                 if (go != null)
                     go.SetActive(false);
@@ -79,9 +89,43 @@ namespace DreamStudio
 
         IEnumerator Start()
         {
+            // After every Awake, so pieces that reset themselves on load don't undo this.
+            if (ArrivedRestored)
+                SettleFoundThings();
+
             yield return new WaitForSeconds(1.5f);
-            if (!IsDream && DreamHud.Instance != null)
-                DreamHud.Instance.ShowMessage(introMessage, 8f);
+            if (DreamHud.Instance != null)
+                DreamHud.Instance.ShowMessage(ArrivedRestored ? revisitMessage : introMessage, ArrivedRestored ? 6f : 8f);
+        }
+
+        /// <summary>
+        /// Coming back to a world restored earlier: skip the nightmare and open straight into the dream,
+        /// as it was left. The nightmare things are gone, the dream things and the way home are there.
+        /// </summary>
+        void OpenAsDream()
+        {
+            IsDream = true;
+            ArrivedRestored = true;
+
+            foreach (var go in nightmareOnly)
+                if (go != null)
+                    go.SetActive(false);
+            foreach (var go in dreamOnly)
+                if (go != null)
+                    go.SetActive(true);
+
+            if (vision != null)
+                vision.SetBlend(1f);
+            DreamAudio.SetNightmareDrone(0f);
+        }
+
+        /// <summary>The token was already claimed and every piece already gathered.</summary>
+        void SettleFoundThings()
+        {
+            foreach (var token in FindObjectsByType<DreamToken>(FindObjectsInactive.Include))
+                token.SetAlreadyClaimed();
+            foreach (var piece in FindObjectsByType<DreamCollectible>(FindObjectsInactive.Include))
+                piece.SetCollected();
         }
 
         void OnDestroy()
@@ -116,7 +160,7 @@ namespace DreamStudio
             if (IsDream)
                 return;
             IsDream = true;
-            s_Restored.Add(SceneManager.GetActiveScene().name);
+            s_Restored.Add(gameObject.scene.name);
             StartCoroutine(TransitionRoutine());
         }
 

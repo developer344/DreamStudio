@@ -8,8 +8,9 @@ using static DreamStudio.Editor.DreamBuildUtils;
 namespace DreamStudio.Editor
 {
     /// <summary>
-    /// Builds the Start Room: the cosy dream bedroom where the game begins, in the same scene as the
-    /// Portal Room and joined to it by a corridor through the doorway in its +Z wall. It teaches the
+    /// Builds the Start Room: a palace bedchamber under a starry dome (see <see cref="DreamPalace"/>) where the
+    /// game begins, in the same scene as the Portal Room and joined to it by a corridor through the doorway in
+    /// its +Z wall. It teaches the
     /// controls and the nightmare/dream idea, lets players practise grabbing, and holds the comfort console.
     /// Built by <see cref="DreamRoomBuilder"/>.
     /// </summary>
@@ -18,7 +19,6 @@ namespace DreamStudio.Editor
         public const float Radius = 7f;
         public const float DoorWidth = 3f;
         public const float DoorHeight = 3.6f;
-        const float WallHeight = 4.5f;
 
         /// <summary>Where the player starts, relative to the room's center: back from the door, facing it.</summary>
         public static readonly Vector3 SpawnOffset = new Vector3(0f, 0f, -3.5f);
@@ -50,7 +50,7 @@ namespace DreamStudio.Editor
             public Material floor = Lit("Lobby_Floor", new Color(0.72f, 0.55f, 0.45f), 0.35f, new Color(0.04f, 0.02f, 0.02f));
             public Material wall = Lit("Lobby_Wall", new Color(0.92f, 0.82f, 0.95f), 0.25f, new Color(0.1f, 0.07f, 0.12f));
             public Material wood = Lit("Lobby_Wood", new Color(0.55f, 0.38f, 0.28f), 0.2f, new Color(0.03f, 0.02f, 0.01f));
-            public Material rug = Lit("Lobby_Rug", new Color(0.95f, 0.6f, 0.75f), 0.1f, new Color(0.1f, 0.03f, 0.06f));
+            public Material rug = Lit("Lobby_Rug", new Color(0.55f, 0.12f, 0.2f), 0.15f, new Color(0.04f, 0.01f, 0.015f));
             public Material blanket = Lit("Lobby_Blanket", new Color(0.55f, 0.6f, 1f), 0.3f, new Color(0.05f, 0.06f, 0.12f));
             public Material sheet = Lit("Lobby_Sheet", new Color(0.98f, 0.96f, 1f), 0.3f, new Color(0.1f, 0.1f, 0.12f));
             public Material sign = Lit("Lobby_Sign", new Color(0.3f, 0.24f, 0.42f), 0.4f, new Color(0.05f, 0.03f, 0.08f));
@@ -60,6 +60,7 @@ namespace DreamStudio.Editor
             public Material button = Lit("Lobby_Button", new Color(0.5f, 0.85f, 1f), 0.6f, new Color(0.4f, 0.9f, 1.2f));
             public Material star = Lit("Lobby_PracticeStar", new Color(1f, 0.92f, 0.6f), 0.9f, new Color(1.8f, 1.5f, 0.6f));
             public Material sparkle = Sparkle();
+            public DreamPalace.Mats palace = new DreamPalace.Mats();
             public Material[] books =
             {
                 Lit("Lobby_Book_Red", new Color(0.8f, 0.3f, 0.35f), 0.3f, Color.black),
@@ -114,62 +115,18 @@ namespace DreamStudio.Editor
 
         static void BuildRoom(Transform root, Mats m)
         {
-            var floor = Part(PrimitiveType.Cylinder, "Floor", root, m.floor, new Vector3(0f, -0.05f, 0f), new Vector3(Radius * 2f + 0.6f, 0.05f, Radius * 2f + 0.6f), false);
-            floor.AddComponent<MeshCollider>().sharedMesh = floor.GetComponent<MeshFilter>().sharedMesh;
-            floor.AddComponent<TeleportationArea>();
-            Part(PrimitiveType.Cylinder, "Rug", root, m.rug, new Vector3(0f, 0.005f, 0.3f), new Vector3(4.4f, 0.005f, 4.4f), false);
-            Part(PrimitiveType.Cylinder, "Rug Border", root, m.trim, new Vector3(0f, 0.004f, 0.3f), new Vector3(4.6f, 0.004f, 4.6f), false);
+            DreamPalace.Build(root, m.palace, Radius, DoorWidth, DoorHeight);
 
-            // A round wall of panels with four tall windows onto the dream sky, and the doorway to the
-            // corridor straight ahead (+Z).
-            const int segments = 28;
-            float width = 2f * Mathf.PI * Radius / segments * 1.05f;
-            var walls = Group("Walls", root, Vector3.zero);
-            for (int i = 0; i < segments; i++)
-            {
-                float angle = i * 360f / segments;
-                var rot = Quaternion.Euler(0f, angle, 0f);
-                var panel = Group($"Wall {i}", walls.transform, rot * new Vector3(0f, 0f, Radius), angle + 180f);
-                bool door = Mathf.Abs(Mathf.DeltaAngle(angle, 0f)) < 20f;
-                bool window = !door && i % 7 == 3;
-                if (door)
-                {
-                    Part(PrimitiveType.Cube, "Over Door", panel.transform, m.wall, new Vector3(0f, (DoorHeight + WallHeight) * 0.5f, 0f), new Vector3(width, WallHeight - DoorHeight, 0.3f));
-                }
-                else if (window)
-                {
-                    Part(PrimitiveType.Cube, "Sill", panel.transform, m.wall, new Vector3(0f, 0.5f, 0f), new Vector3(width, 1f, 0.3f));
-                    Part(PrimitiveType.Cube, "Over Window", panel.transform, m.wall, new Vector3(0f, (3.4f + WallHeight) * 0.5f, 0f), new Vector3(width, WallHeight - 3.4f, 0.3f));
-                    Part(PrimitiveType.Cube, "Window Frame", panel.transform, m.trim, new Vector3(0f, 2.2f, 0f), new Vector3(0.08f, 2.4f, 0.32f), false);
-                    Part(PrimitiveType.Cube, "Window Frame", panel.transform, m.trim, new Vector3(0f, 2.2f, 0f), new Vector3(width, 0.08f, 0.32f), false);
-                    // An invisible pane so nobody leans out of the window.
-                    var pane = new GameObject("Pane");
-                    pane.transform.SetParent(panel.transform, false);
-                    pane.transform.localPosition = new Vector3(0f, 2.2f, 0f);
-                    pane.AddComponent<BoxCollider>().size = new Vector3(width, 2.4f, 0.3f);
-                }
-                else
-                {
-                    Part(PrimitiveType.Cube, "Panel", panel.transform, m.wall, new Vector3(0f, WallHeight * 0.5f, 0f), new Vector3(width, WallHeight, 0.3f));
-                }
-                Part(PrimitiveType.Cube, "Top Trim", panel.transform, m.trim, new Vector3(0f, WallHeight + 0.05f, 0f), new Vector3(width, 0.1f, 0.4f), false);
-                if (!door)
-                    Part(PrimitiveType.Cube, "Skirting", panel.transform, m.wood, new Vector3(0f, 0.08f, -0.17f), new Vector3(width, 0.16f, 0.05f), false);
-            }
-
-            // Close the curved gap on each side of the doorway down to the corridor's width, and frame it.
-            var doorway = Group("Doorway", root, Vector3.zero);
-            float half = DoorWidth * 0.5f;
-            float chord = Radius * Mathf.Sin(20f * Mathf.Deg2Rad) + 0.3f;
-            for (int side = -1; side <= 1; side += 2)
-            {
-                float x = side * (half + 0.15f + (chord - half - 0.15f) * 0.5f);
-                Part(PrimitiveType.Cube, "Door Filler", doorway.transform, m.wall, new Vector3(x, WallHeight * 0.5f, Radius - 0.35f),
-                    new Vector3(chord - half - 0.15f, WallHeight, 0.7f));
-                Part(PrimitiveType.Cylinder, "Door Column", doorway.transform, m.trim, new Vector3(side * (half + 0.15f), DoorHeight * 0.5f, Radius - 0.75f),
-                    new Vector3(0.3f, DoorHeight * 0.5f, 0.3f));
-            }
-            Part(PrimitiveType.Cube, "Door Lintel", doorway.transform, m.trim, new Vector3(0f, DoorHeight + 0.1f, Radius - 0.75f), new Vector3(DoorWidth + 0.6f, 0.2f, 0.35f), false);
+            // A round crimson rug with gold borders and a medallion at its heart.
+            Part(PrimitiveType.Cylinder, "Rug", root, m.rug, new Vector3(0f, 0.008f, 0f), new Vector3(4.4f, 0.004f, 4.4f), false);
+            Part(PrimitiveType.Cylinder, "Rug Border", root, m.palace.gold, new Vector3(0f, 0.007f, 0f), new Vector3(4.6f, 0.004f, 4.6f), false);
+            Part(PrimitiveType.Cylinder, "Rug Inner Border", root, m.palace.gold, new Vector3(0f, 0.009f, 0f), new Vector3(3.7f, 0.004f, 3.7f), false);
+            Part(PrimitiveType.Cylinder, "Rug Field", root, m.rug, new Vector3(0f, 0.01f, 0f), new Vector3(3.55f, 0.004f, 3.55f), false);
+            Part(PrimitiveType.Cylinder, "Medallion", root, m.palace.gold, new Vector3(0f, 0.011f, 0f), new Vector3(1.3f, 0.004f, 1.3f), false);
+            Part(PrimitiveType.Cylinder, "Medallion Heart", root, m.palace.velvet, new Vector3(0f, 0.012f, 0f), new Vector3(1.1f, 0.004f, 1.1f), false);
+            foreach (var go in root.GetComponentsInChildren<Renderer>())
+                if (go.name.StartsWith("Rug") || go.name.StartsWith("Medallion"))
+                    go.shadowCastingMode = ShadowCastingMode.Off;
 
             // Clouds drifting past the windows (none on the doorway side, where the corridor runs).
             for (int i = 0; i < 12; i++)
@@ -193,24 +150,70 @@ namespace DreamStudio.Editor
 
         static void BuildBedCorner(Transform root, Mats m)
         {
-            // The bed, headboard against the wall: where the dream began.
-            var bed = Group("Bed", root, new Vector3(-Radius + 1.4f, 0f, -0.6f), -90f);
-            Part(PrimitiveType.Cube, "Frame", bed.transform, m.wood, new Vector3(0f, 0.22f, 0f), new Vector3(1.5f, 0.3f, 2.1f));
-            Part(PrimitiveType.Cube, "Mattress", bed.transform, m.sheet, new Vector3(0f, 0.47f, 0f), new Vector3(1.4f, 0.2f, 2f));
-            Part(PrimitiveType.Cube, "Blanket", bed.transform, m.blanket, new Vector3(0f, 0.6f, -0.3f), new Vector3(1.46f, 0.08f, 1.35f));
-            Part(PrimitiveType.Cube, "Blanket Fold", bed.transform, m.sheet, new Vector3(0f, 0.63f, 0.38f), new Vector3(1.44f, 0.06f, 0.15f));
-            var pillow = Part(PrimitiveType.Sphere, "Pillow", bed.transform, m.sheet, new Vector3(0f, 0.66f, 0.72f), new Vector3(0.95f, 0.18f, 0.42f));
-            pillow.transform.localRotation = Quaternion.Euler(-8f, 0f, 0f);
-            Part(PrimitiveType.Cube, "Headboard", bed.transform, m.wood, new Vector3(0f, 0.8f, 1.05f), new Vector3(1.6f, 1.2f, 0.12f));
-            Part(PrimitiveType.Sphere, "Headboard Moon", bed.transform, m.trim, new Vector3(0f, 1.15f, 0.98f), new Vector3(0.3f, 0.3f, 0.06f), false);
-            foreach (var x in new[] { -0.72f, 0.72f })
-                foreach (var z in new[] { -1f, 1.02f })
-                    Part(PrimitiveType.Cylinder, "Post", bed.transform, m.wood, new Vector3(x, z > 0f ? 0.7f : 0.35f, z), new Vector3(0.1f, z > 0f ? 0.7f : 0.35f, 0.1f));
+            // A royal four-poster, headboard against the wall: where the dream began.
+            var p = m.palace;
+            var bed = Group("Royal Bed", root, new Vector3(-Radius + 1.5f, 0f, 0f), -90f);
+            Part(PrimitiveType.Cube, "Frame", bed.transform, m.wood, new Vector3(0f, 0.25f, 0f), new Vector3(1.7f, 0.34f, 2.2f));
+            Part(PrimitiveType.Cube, "Frame Gilding", bed.transform, p.gold, new Vector3(0f, 0.43f, 0f), new Vector3(1.74f, 0.04f, 2.24f), false);
+            Part(PrimitiveType.Cube, "Mattress", bed.transform, m.sheet, new Vector3(0f, 0.55f, 0f), new Vector3(1.6f, 0.2f, 2.1f));
+            Part(PrimitiveType.Cube, "Coverlet", bed.transform, p.velvet, new Vector3(0f, 0.68f, -0.3f), new Vector3(1.66f, 0.07f, 1.45f));
+            Part(PrimitiveType.Cube, "Coverlet Hem", bed.transform, p.gold, new Vector3(0f, 0.66f, -1.03f), new Vector3(1.68f, 0.1f, 0.04f), false);
+            Part(PrimitiveType.Cube, "Sheet Fold", bed.transform, m.sheet, new Vector3(0f, 0.71f, 0.45f), new Vector3(1.64f, 0.06f, 0.18f));
+            foreach (var x in new[] { -0.4f, 0.4f })
+            {
+                var pillow = Part(PrimitiveType.Sphere, "Pillow", bed.transform, m.sheet, new Vector3(x, 0.76f, 0.82f), new Vector3(0.7f, 0.2f, 0.42f));
+                pillow.transform.localRotation = Quaternion.Euler(-10f, 0f, 0f);
+            }
+            var bolster = Part(PrimitiveType.Capsule, "Bolster", bed.transform, p.velvet, new Vector3(0f, 0.74f, 0.58f), new Vector3(0.18f, 0.75f, 0.18f), false);
+            bolster.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            Part(PrimitiveType.Cube, "Headboard", bed.transform, m.wood, new Vector3(0f, 1.15f, 1.12f), new Vector3(1.8f, 1.7f, 0.1f));
+            Part(PrimitiveType.Cube, "Headboard Panel", bed.transform, p.velvet, new Vector3(0f, 1.2f, 1.06f), new Vector3(1.5f, 1.3f, 0.03f), false);
+            Part(PrimitiveType.Cube, "Headboard Gilding", bed.transform, p.gold, new Vector3(0f, 2.02f, 1.1f), new Vector3(1.86f, 0.06f, 0.14f), false);
+            Part(PrimitiveType.Sphere, "Headboard Crest", bed.transform, p.gold, new Vector3(0f, 2.15f, 1.08f), new Vector3(0.36f, 0.42f, 0.08f), false);
+            Part(PrimitiveType.Sphere, "Headboard Moon", bed.transform, p.star, new Vector3(0f, 2.16f, 1.03f), new Vector3(0.18f, 0.18f, 0.04f), false);
+
+            // Turned posts carrying a velvet canopy with a gilded, scalloped valance and drapes at the head.
+            var post = DreamPalace.Lathe("PalaceBedPost", new[]
+            {
+                new Vector2(0.08f, 0f), new Vector2(0.08f, 0.45f), new Vector2(0.1f, 0.5f), new Vector2(0.06f, 0.6f), new Vector2(0.09f, 0.8f),
+                new Vector2(0.05f, 1f), new Vector2(0.045f, 2.3f), new Vector2(0.07f, 2.38f), new Vector2(0.045f, 2.45f), new Vector2(0.05f, 2.62f),
+                new Vector2(0.07f, 2.7f), new Vector2(0f, 2.78f),
+            }, 12, true);
+            foreach (var x in new[] { -0.82f, 0.82f })
+                foreach (var z in new[] { -1.08f, 1.08f })
+                {
+                    var postGo = MeshObject("Post", bed.transform, post, m.wood);
+                    postGo.transform.localPosition = new Vector3(x, 0f, z);
+                    Part(PrimitiveType.Sphere, "Post Finial", bed.transform, p.gold, new Vector3(x, 2.84f, z), Vector3.one * 0.12f, false);
+                }
+            Part(PrimitiveType.Cube, "Canopy", bed.transform, p.velvet, new Vector3(0f, 2.66f, 0f), new Vector3(1.78f, 0.04f, 2.28f), false);
+            foreach (var (pos, size) in new[]
+            {
+                (new Vector3(0f, 2.55f, -1.14f), new Vector3(1.8f, 0.24f, 0.03f)), (new Vector3(0f, 2.55f, 1.14f), new Vector3(1.8f, 0.24f, 0.03f)),
+                (new Vector3(-0.9f, 2.55f, 0f), new Vector3(0.03f, 0.24f, 2.3f)), (new Vector3(0.9f, 2.55f, 0f), new Vector3(0.03f, 0.24f, 2.3f)),
+            })
+            {
+                Part(PrimitiveType.Cube, "Valance", bed.transform, p.velvet, pos, size, false);
+                Part(PrimitiveType.Cube, "Valance Fringe", bed.transform, p.gold, pos + Vector3.down * 0.13f, new Vector3(Mathf.Max(size.x, 0.04f), 0.03f, Mathf.Max(size.z, 0.04f)), false);
+            }
+            var drapeMesh = DreamPalace.CurtainMesh();
+            foreach (var x in new[] { -0.82f, 0.82f })
+            {
+                var drape = MeshObject("Bed Drape", bed.transform, drapeMesh, p.velvet);
+                drape.transform.localPosition = new Vector3(x, 2.6f, 0.95f);
+                // Hanging back along the bed's side toward its foot, folds bulging outward on each side.
+                drape.transform.localRotation = Quaternion.Euler(0f, -90f, 0f);
+                drape.transform.localScale = new Vector3(0.55f, 0.45f, x < 0f ? 1f : -1f);
+            }
 
             // Nightstand with a lamp, and the practice star hovering above it.
-            var stand = Group("Nightstand", root, new Vector3(-Radius + 1.05f, 0f, 1.25f), 90f);
+            // The nightstand stands in the next bay along, beside the bed.
+            float standAngle = 292.5f * Mathf.Deg2Rad;
+            var standPos = new Vector3(Mathf.Sin(standAngle), 0f, Mathf.Cos(standAngle)) * (Radius - 0.9f);
+            var stand = Group("Nightstand", root, standPos, FacingYaw(standPos, Vector3.zero));
             Part(PrimitiveType.Cube, "Cabinet", stand.transform, m.wood, new Vector3(0f, 0.3f, 0f), new Vector3(0.6f, 0.6f, 0.5f));
             Part(PrimitiveType.Cube, "Drawer", stand.transform, m.trim, new Vector3(0f, 0.42f, 0.26f), new Vector3(0.12f, 0.04f, 0.03f), false);
+            Part(PrimitiveType.Cube, "Marble Top", stand.transform, m.palace.marble, new Vector3(0f, 0.62f, 0f), new Vector3(0.66f, 0.04f, 0.56f), false);
             Part(PrimitiveType.Cylinder, "Lamp Base", stand.transform, m.trim, new Vector3(-0.15f, 0.68f, -0.05f), new Vector3(0.14f, 0.08f, 0.14f));
             var shade = Part(PrimitiveType.Sphere, "Lamp Shade", stand.transform, m.moon, new Vector3(-0.15f, 0.9f, -0.05f), new Vector3(0.28f, 0.22f, 0.28f), false);
             shade.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
@@ -242,7 +245,13 @@ namespace DreamStudio.Editor
 
         static void BuildBookshelf(Transform root, Mats m)
         {
-            var shelf = Group("Bookshelf", root, new Vector3(Radius - 0.75f, 0f, 1.6f), -90f);
+            var shelf = Group("Bookshelf", root, new Vector3(Radius - 0.75f, 0f, 0f), -90f);
+            // A gilded crown and pilasters, so it suits the palace.
+            Part(PrimitiveType.Cube, "Crown", shelf.transform, m.palace.gold, new Vector3(0f, 2.26f, 0.02f), new Vector3(1.78f, 0.1f, 0.52f), false);
+            Part(PrimitiveType.Cube, "Pediment", shelf.transform, m.wood, new Vector3(0f, 2.42f, -0.05f), new Vector3(1.2f, 0.22f, 0.3f), false);
+            Part(PrimitiveType.Sphere, "Pediment Crest", shelf.transform, m.palace.gold, new Vector3(0f, 2.6f, -0.02f), new Vector3(0.22f, 0.26f, 0.06f), false);
+            foreach (var x in new[] { -0.82f, 0.82f })
+                Part(PrimitiveType.Cube, "Pilaster", shelf.transform, m.palace.gold, new Vector3(x, 1.1f, 0.24f), new Vector3(0.05f, 2.2f, 0.03f), false);
             Part(PrimitiveType.Cube, "Back", shelf.transform, m.wood, new Vector3(0f, 1.1f, -0.2f), new Vector3(1.6f, 2.2f, 0.06f));
             foreach (var x in new[] { -0.78f, 0.78f })
                 Part(PrimitiveType.Cube, "Side", shelf.transform, m.wood, new Vector3(x, 1.1f, 0f), new Vector3(0.06f, 2.2f, 0.45f));
@@ -273,7 +282,7 @@ namespace DreamStudio.Editor
         static void BuildSigns(Transform root, Mats m)
         {
             Sign(root, m, new Vector3(-2.8f, 0f, 0.6f), SpawnOffset,
-                "<b>Welcome to Dream Studio</b>\n\nYou have drifted into a land of dreams, but six of them have turned into nightmares.\n\n" +
+                $"<b>Welcome to Dream Studio</b>\n\nYou have drifted into a land of dreams, but {CountWord(DreamBuildUtils.Worlds.Length)} of them have turned into nightmares.\n\n" +
                 "Walk down the corridor ahead to reach the <b>Portal Room</b>, then choose a world to rescue.");
             Sign(root, m, new Vector3(2.8f, 0f, 0.6f), SpawnOffset,
                 "<b>How to Play</b>\n\n<b>Left stick</b>: move\n<b>Right stick</b>: turn, or push forward to aim a teleport\n" +
@@ -285,12 +294,30 @@ namespace DreamStudio.Editor
                 "Then follow the floating lights back to where you started: a portal home will be waiting.");
         }
 
+        /// <summary>A gold frame round a board of the given size, with a small crest on top.</summary>
+        static void GildedFrame(Transform parent, Mats m, Vector3 center, float width, float height)
+        {
+            const float bar = 0.06f;
+            Part(PrimitiveType.Cube, "Frame", parent, m.palace.gold, center + new Vector3(0f, height * 0.5f, 0f), new Vector3(width + bar * 2f, bar, 0.09f), false);
+            Part(PrimitiveType.Cube, "Frame", parent, m.palace.gold, center - new Vector3(0f, height * 0.5f, 0f), new Vector3(width + bar * 2f, bar, 0.09f), false);
+            foreach (int side in new[] { -1, 1 })
+                Part(PrimitiveType.Cube, "Frame", parent, m.palace.gold, center + new Vector3(side * (width * 0.5f + bar * 0.5f), 0f, 0f), new Vector3(bar, height, 0.09f), false);
+            Part(PrimitiveType.Sphere, "Frame Crest", parent, m.palace.gold, center + new Vector3(0f, height * 0.5f + 0.1f, 0f), new Vector3(0.24f, 0.2f, 0.06f), false);
+        }
+
+        static string CountWord(int n)
+        {
+            string[] words = { "none", "one", "two", "three", "four", "five", "six", "seven", "eight" };
+            return n >= 0 && n < words.Length ? words[n] : n.ToString();
+        }
+
         static void Sign(Transform root, Mats m, Vector3 position, Vector3 lookAt, string text)
         {
             var sign = Group("Sign", root, position, FacingYaw(position, new Vector3(lookAt.x, 0f, lookAt.z)));
-            Part(PrimitiveType.Cylinder, "Post", sign.transform, m.wood, new Vector3(0f, 0.6f, -0.05f), new Vector3(0.08f, 0.6f, 0.08f));
+            Part(PrimitiveType.Cylinder, "Post", sign.transform, m.palace.gold, new Vector3(0f, 0.6f, -0.05f), new Vector3(0.08f, 0.6f, 0.08f));
+            Part(PrimitiveType.Cylinder, "Post Foot", sign.transform, m.palace.darkMarble, new Vector3(0f, 0.04f, -0.05f), new Vector3(0.5f, 0.04f, 0.5f));
             Part(PrimitiveType.Cube, "Board", sign.transform, m.sign, new Vector3(0f, 1.65f, 0f), new Vector3(2f, 1.5f, 0.06f));
-            Part(PrimitiveType.Cube, "Board Trim", sign.transform, m.trim, new Vector3(0f, 2.42f, 0f), new Vector3(2.05f, 0.05f, 0.08f), false);
+            GildedFrame(sign.transform, m, new Vector3(0f, 1.65f, 0f), 2f, 1.5f);
             Text(sign.transform, text, new Vector3(0f, 1.65f, 0.04f), 1.05f, new Vector2(1.8f, 1.3f), new Color(1f, 0.95f, 0.9f));
         }
 
@@ -301,7 +328,7 @@ namespace DreamStudio.Editor
             // The stand sits behind the board so it never covers the bottom row of buttons.
             Part(PrimitiveType.Cube, "Stand", console.transform, m.wood, new Vector3(0f, 0.45f, -0.18f), new Vector3(0.9f, 0.9f, 0.2f));
             Part(PrimitiveType.Cube, "Board", console.transform, m.sign, new Vector3(0f, 1.55f, 0f), new Vector3(1.8f, 1.7f, 0.06f));
-            Part(PrimitiveType.Cube, "Board Trim", console.transform, m.trim, new Vector3(0f, 2.42f, 0f), new Vector3(1.85f, 0.05f, 0.08f), false);
+            GildedFrame(console.transform, m, new Vector3(0f, 1.55f, 0f), 1.8f, 1.7f);
             Text(console.transform, "<b>Comfort Settings</b>\n<size=70%>Point at a button and squeeze the grip</size>",
                 new Vector3(0f, 2.15f, 0.04f), 1.1f, new Vector2(1.6f, 0.35f), new Color(1f, 0.95f, 0.9f));
 

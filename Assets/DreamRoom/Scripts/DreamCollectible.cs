@@ -23,6 +23,16 @@ namespace DreamStudio
                 showOnCollect.SetActive(false);
         }
 
+        /// <summary>Puts the piece in its gathered state without any fanfare, as when revisiting a restored world.</summary>
+        public void SetCollected()
+        {
+            IsCollected = true;
+            if (hideOnCollect != null)
+                hideOnCollect.SetActive(false);
+            if (showOnCollect != null)
+                showOnCollect.SetActive(true);
+        }
+
         void Update()
         {
             if (IsCollected || DreamPlayer.FlatDistance(transform.position) >= touchDistance)

@@ -11,9 +11,9 @@ using static DreamStudio.Editor.DreamBuildUtils;
 namespace DreamStudio.Editor
 {
     /// <summary>
-    /// Builds the Portal Room into BasicScene: an octagonal hall with a portal to each world on six walls,
-    /// a great window on the seventh and, on the eighth, a corridor back to the Start Room, where the game
-    /// begins. A progress counter stands at its heart, with a finale once every world is restored.
+    /// Builds the Portal Room into BasicScene: an octagonal hall with a portal to each world straight ahead,
+    /// to the left and to the right as you come in, great windows on either side of the portal ahead, solid
+    /// walls beside the entrance and, behind you, a corridor back to the Start Room, where the game begins. A progress counter stands at its heart, with a finale once every world is restored.
     /// Run from the menu: Dream Studio > Build Dream Room. Re-running replaces the previous build.
     /// </summary>
     public static class DreamRoomBuilder
@@ -30,9 +30,11 @@ namespace DreamStudio.Editor
 
         // Layout of the eight walls (0 = +Z, then clockwise in 45° steps).
         const int Sides = 8;
-        const int WindowSide = 0;   // straight ahead as you come in
-        const int EntranceSide = 4; // toward the corridor and the Start Room
-        static readonly int[] WorldSides = { 1, 2, 3, 5, 6, 7 };
+        const int EntranceSide = 4;                        // toward the corridor and the Start Room
+        static readonly int[] WorldSides = { 6, 0, 2 };    // left, straight ahead, right as you come in
+        static readonly int[] WindowSides = { 7, 1 };      // either side of the portal straight ahead
+
+        static bool IsWindow(int side) => System.Array.IndexOf(WindowSides, side) >= 0;
 
         const float CorridorWidth = DreamLobbyBuilder.DoorWidth;
         const float CorridorHeight = DreamLobbyBuilder.DoorHeight;
@@ -205,16 +207,24 @@ namespace DreamStudio.Editor
                 wall.transform.localPosition = dir * Apothem;
                 wall.transform.localRotation = Quaternion.Euler(0f, angle + 180f, 0f);
 
-                float opening = i == EntranceSide ? CorridorWidth : i == WindowSide ? WindowWidth : OpeningWidth;
+                // Walls with nothing in them (no portal, window or corridor) are solid.
+                float opening = i == EntranceSide ? CorridorWidth : IsWindow(i) ? WindowWidth : worldIndex >= 0 ? OpeningWidth : 0f;
                 float top = i == EntranceSide ? CorridorHeight : OpeningTop;
                 float pillarWidth = (sideLength - opening) * 0.5f;
                 float pillarX = opening * 0.5f + pillarWidth * 0.5f;
-                Box("Left", wall.transform, mats.wall, new Vector3(-pillarX, WallHeight * 0.5f, 0f), new Vector3(pillarWidth, WallHeight, WallThickness));
-                Box("Right", wall.transform, mats.wall, new Vector3(pillarX, WallHeight * 0.5f, 0f), new Vector3(pillarWidth, WallHeight, WallThickness));
-                Box("Lintel", wall.transform, mats.wall, new Vector3(0f, (top + WallHeight) * 0.5f, 0f), new Vector3(opening, WallHeight - top, WallThickness));
+                if (opening > 0f)
+                {
+                    Box("Left", wall.transform, mats.wall, new Vector3(-pillarX, WallHeight * 0.5f, 0f), new Vector3(pillarWidth, WallHeight, WallThickness));
+                    Box("Right", wall.transform, mats.wall, new Vector3(pillarX, WallHeight * 0.5f, 0f), new Vector3(pillarWidth, WallHeight, WallThickness));
+                    Box("Lintel", wall.transform, mats.wall, new Vector3(0f, (top + WallHeight) * 0.5f, 0f), new Vector3(opening, WallHeight - top, WallThickness));
+                }
+                else
+                {
+                    Box("Wall", wall.transform, mats.wall, new Vector3(0f, WallHeight * 0.5f, 0f), new Vector3(sideLength, WallHeight, WallThickness));
+                }
                 Box("Top Trim", wall.transform, mats.trim, new Vector3(0f, WallHeight + 0.06f, 0f), new Vector3(sideLength, 0.12f, WallThickness + 0.12f), false);
 
-                if (i == WindowSide)
+                if (IsWindow(i))
                 {
                     // A great window onto the dream sky, with an invisible pane to lean on.
                     Box("Sill", wall.transform, mats.wall, new Vector3(0f, 0.5f, 0f), new Vector3(opening, 1f, WallThickness));
@@ -230,11 +240,15 @@ namespace DreamStudio.Editor
                     var world = Worlds[worldIndex];
                     // No collider on the step so players can walk right up into the portal.
                     Box("Step", wall.transform, mats.column, new Vector3(0f, PortalBase * 0.5f, 0.1f), new Vector3(opening, PortalBase, WallThickness + 0.2f), false);
-                    var labelPos = new Vector3(0f, OpeningTop - PortalBase - PortalHalfHeight + 0.4f, WallThickness * 0.5f + 0.02f);
+                    // The name sits high on the lintel, clear of the pieces bursting out of the portal's rim.
+                    var labelPos = new Vector3(0f, OpeningTop - PortalBase - PortalHalfHeight + 1.0f, WallThickness * 0.5f + 0.02f);
                     var portal = CreatePortal(portals.transform, world.name, world.scene, world.scene, world.inner, world.outer, labelPos);
                     portal.transform.position = wall.transform.TransformPoint(new Vector3(0f, PortalBase + PortalHalfHeight, 0f));
                     portal.transform.rotation = wall.transform.rotation;
                     portal.arriveHere = true;
+
+                    // A recess behind the portal, and a border of the world's own things bursting out of its rim.
+                    DreamPortalGates.Build(wall.transform, portal.transform, worldIndex, opening, OpeningTop, WallThickness, PortalBase, mats.column);
 
                     // A banner in the world's colours on each side of the portal.
                     for (int side = -1; side <= 1; side += 2)
@@ -244,10 +258,10 @@ namespace DreamStudio.Editor
                     }
                 }
 
-                // A glowing sconce on each side of every opening.
-                for (int side = -1; side <= 1; side += 2)
+                // A glowing sconce on each side of the window and the entrance (the world portals bring their own light).
+                for (int side = -1; side <= 1 && worldIndex < 0; side += 2)
                 {
-                    var sconce = new Vector3(side * (opening * 0.5f + 0.45f), 2.6f, WallThickness * 0.5f + 0.2f);
+                    var sconce = new Vector3(side * (opening > 0f ? opening * 0.5f + 0.45f : 1.6f), 2.6f, WallThickness * 0.5f + 0.2f);
                     var cup = CreatePrimitive(PrimitiveType.Cylinder, "Sconce", wall.transform, mats.trim, false);
                     cup.transform.localPosition = sconce;
                     cup.transform.localScale = new Vector3(0.22f, 0.08f, 0.22f);
@@ -358,7 +372,7 @@ namespace DreamStudio.Editor
             for (int i = 0; i < Worlds.Length; i++)
             {
                 var orb = CreatePrimitive(PrimitiveType.Sphere, $"Orb {Worlds[i].name}", orbit.transform, mats.portalRing[i], false);
-                orb.transform.localPosition = Quaternion.Euler(0f, i * 60f, 0f) * Vector3.forward * 1.9f;
+                orb.transform.localPosition = Quaternion.Euler(0f, i * 360f / Worlds.Length, 0f) * Vector3.forward * 1.9f;
                 orb.transform.localScale = Vector3.one * 0.18f;
             }
         }
@@ -494,7 +508,7 @@ namespace DreamStudio.Editor
             turn.bobHeight = 0.05f;
             turn.bobSpeed = 0.2f;
             turn.spin = new Vector3(0f, 15f, 0f);
-            var counters = TwoSidedText(sign.transform, "Dreams restored\n0 / 6", 3f, new Vector2(3f, 1.2f), new Color(1f, 0.92f, 0.75f), mats.column);
+            var counters = TwoSidedText(sign.transform, $"Dreams restored\n0 / {Worlds.Length}", 3f, new Vector2(3f, 1.2f), new Color(1f, 0.92f, 0.75f), mats.column);
 
             var finale = new GameObject("Finale");
             finale.transform.SetParent(root, false);

@@ -34,25 +34,25 @@ namespace DreamStudio.Editor
             public string scene;
             public Color inner;
             public Color outer;
+            /// <summary>Fixed per world, so a world's random layout stays the same when the list changes.</summary>
+            public int seed;
 
-            public World(string name, string scene, Color inner, Color outer)
+            public World(string name, string scene, Color inner, Color outer, int seed)
             {
                 this.name = name;
                 this.scene = scene;
                 this.inner = inner;
                 this.outer = outer;
+                this.seed = seed;
             }
         }
 
-        /// <summary>The six worlds, in hub portal order. Scene files live in <see cref="WorldSceneDir"/>.</summary>
+        /// <summary>The worlds, in hub portal order (left, ahead, right). Scene files live in <see cref="WorldSceneDir"/>.</summary>
         public static readonly World[] Worlds =
         {
-            new World("Haunted Forest", "HauntedForest", new Color(0.65f, 1f, 0.7f), new Color(0.3f, 0.12f, 0.5f)),
-            new World("Sunken Depths", "SunkenDepths", new Color(0.4f, 0.95f, 1f), new Color(0.1f, 0.2f, 0.75f)),
-            new World("Candy Forest", "CandyForest", new Color(1f, 0.55f, 0.75f), new Color(0.5f, 1f, 0.6f)),
-            new World("Clockwork Moon", "ClockworkMoon", new Color(1f, 0.9f, 0.5f), new Color(0.85f, 0.45f, 0.15f)),
-            new World("Crystal Caverns", "CrystalCaverns", new Color(0.75f, 1f, 0.95f), new Color(0.45f, 0.25f, 0.95f)),
-            new World("Upside-Down City", "UpsideDownCity", new Color(0.95f, 0.55f, 1f), new Color(0.2f, 0.85f, 0.7f)),
+            new World("Haunted Forest", "HauntedForest", new Color(0.65f, 1f, 0.7f), new Color(0.3f, 0.12f, 0.5f), 1000),
+            new World("Sunken Depths", "SunkenDepths", new Color(0.4f, 0.95f, 1f), new Color(0.1f, 0.2f, 0.75f), 1001),
+            new World("Upside-Down City", "UpsideDownCity", new Color(0.95f, 0.55f, 1f), new Color(0.2f, 0.85f, 0.7f), 1005),
         };
 
         public static void EnsureFolders()
@@ -247,6 +247,8 @@ namespace DreamStudio.Editor
             foreach (var r in root.GetComponentsInChildren<MeshRenderer>(true))
             {
                 if (r.shadowCastingMode == ShadowCastingMode.Off || !r.TryGetComponent<MeshFilter>(out var filter) || filter.sharedMesh == null)
+                    continue;
+                if (r.name == "Fallen Log") // long things bring their own long shadow
                     continue;
                 // Mesh bounds work for inactive objects too, unlike Renderer.bounds.
                 var b = TransformBounds(filter.sharedMesh.bounds, r.transform.localToWorldMatrix);

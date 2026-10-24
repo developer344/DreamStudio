@@ -59,6 +59,14 @@ namespace DreamStudio
                 Claim();
         }
 
+        /// <summary>For a world restored on an earlier visit: the token is gone, taken last time.</summary>
+        public void SetAlreadyClaimed()
+        {
+            m_Claimed = true;
+            // Every token sits on its own hover parent, which also holds any sparkle around it.
+            (transform.parent != null ? transform.parent.gameObject : gameObject).SetActive(false);
+        }
+
         public void Claim()
         {
             if (m_Claimed)

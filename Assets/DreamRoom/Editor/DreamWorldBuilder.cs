@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -40,16 +41,13 @@ namespace DreamStudio.Editor
             {
                 var world = Worlds[i];
                 var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-                Random.InitState(1000 + i);
+                Random.InitState(world.seed);
                 s_Terrain = null;
 
                 switch (world.scene)
                 {
                     case "HauntedForest": BuildHauntedForest(world); break;
                     case "SunkenDepths": BuildSunkenDepths(world); break;
-                    case "CandyForest": BuildCandyForest(world); break;
-                    case "ClockworkMoon": BuildClockworkMoon(world); break;
-                    case "CrystalCaverns": BuildCrystalCaverns(world); break;
                     case "UpsideDownCity": BuildUpsideDownCity(world); break;
                     default: Debug.LogError($"[DreamWorldBuilder] No builder for world '{world.scene}'."); break;
                 }
@@ -78,7 +76,8 @@ namespace DreamStudio.Editor
         /// trunks, rocks, candy, coral, crystals, artifacts, rooftop clutter, the hills at the edge. Left
         /// passable: anything scripted to move, sway or be touched (tokens, collectibles, air bubbles, hazards,
         /// portals, kelp, fish, floating lights), thin or flat things you'd snag on (stems, puddles, runes),
-        /// glows and effects, and things too high overhead to bump into.
+        /// tree limbs and leaves (a tree's trunk carries its own collider), glows and effects, and things too
+        /// high overhead to bump into.
         /// </summary>
         static void AddSolidColliders(Transform root)
         {
@@ -86,7 +85,9 @@ namespace DreamStudio.Editor
             {
                 if (r.GetComponent<Collider>() != null || !r.TryGetComponent<MeshFilter>(out var filter) || filter.sharedMesh == null)
                     continue;
-                if (r.name == "Beacon Beam" || r.sharedMaterial == null)
+                if (r.name == "Beacon Beam" || r.name == "Branches" || r.name == "Foliage" || r.name == "Mushrooms" || r.name == "Critters" || r.sharedMaterial == null)
+                    continue;
+                if (r.sharedMaterial.IsKeywordEnabled("_ALPHATEST_ON")) // grass, ferns, leaves: walk-through
                     continue;
                 string shader = r.sharedMaterial.shader.name;
                 if (shader != "Universal Render Pipeline/Lit" && shader != "DreamStudio/TriplanarLit")
@@ -155,8 +156,12 @@ namespace DreamStudio.Editor
 
             var scenes = wanted.Select(p => new EditorBuildSettingsScene(p, true)).ToList();
             foreach (var existing in EditorBuildSettings.scenes)
-                if (!wanted.Contains(existing.path) && existing.path != LobbyScenePath)
+            {
+                // Drop worlds no longer in the list (and anything whose scene file is gone); keep other scenes.
+                bool oldWorld = existing.path.StartsWith(WorldSceneDir + "/");
+                if (!wanted.Contains(existing.path) && existing.path != LobbyScenePath && !oldWorld && File.Exists(existing.path))
                     scenes.Add(existing);
+            }
             EditorBuildSettings.scenes = scenes.ToArray();
         }
 
@@ -244,9 +249,6 @@ namespace DreamStudio.Editor
             {
                 case "HauntedForest": return DreamSound.ForestAmbience;
                 case "SunkenDepths": return DreamSound.OceanAmbience;
-                case "CandyForest": return DreamSound.CandyAmbience;
-                case "ClockworkMoon": return DreamSound.MoonAmbience;
-                case "CrystalCaverns": return DreamSound.CaveAmbience;
                 case "UpsideDownCity": return DreamSound.CityAmbience;
                 default: return DreamSound.HubAmbience;
             }
@@ -563,6 +565,79 @@ namespace DreamStudio.Editor
             return dreamToken;
         }
 
+        /// <summary>
+        /// A lantern hanging from an iron hook post, ready to be taken down and carried: an iron cage around a
+        /// glowing amber crystal, with drifting embers and a warm, flickering light. The post's arm points
+        /// along its local +X.
+        /// </summary>
+        static DreamLantern CreateLantern(Transform parent, Vector3 position, float yaw, Material stoneMat)
+        {
+            var iron = Lit("Lantern_Iron", new Color(0.18f, 0.16f, 0.14f), 0.6f, Color.black);
+            var flame = Lit("Lantern_Flame", new Color(1f, 0.75f, 0.35f), 0.8f, new Color(2.4f, 1.5f, 0.5f));
+
+            var post = Group("Lantern Post", parent);
+            position.y = GroundHeight(position);
+            post.transform.localPosition = position;
+            post.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+            var p = post.transform;
+            Part(PrimitiveType.Cylinder, "Footing", p, stoneMat, new Vector3(0f, 0.08f, 0f), new Vector3(0.4f, 0.08f, 0.4f));
+            Part(PrimitiveType.Cylinder, "Pole", p, iron, new Vector3(0f, 0.9f, 0f), new Vector3(0.06f, 0.9f, 0.06f));
+            Part(PrimitiveType.Sphere, "Pole Cap", p, iron, new Vector3(0f, 1.82f, 0f), Vector3.one * 0.09f);
+            Part(PrimitiveType.Cylinder, "Arm", p, iron, new Vector3(0.21f, 1.8f, 0f), new Vector3(0.04f, 0.21f, 0.04f), new Vector3(0f, 0f, 90f));
+            Part(PrimitiveType.Sphere, "Arm Curl", p, iron, new Vector3(0.44f, 1.8f, 0f), Vector3.one * 0.06f);
+            Part(PrimitiveType.Cylinder, "Hanger", p, iron, new Vector3(0.4f, 1.65f, 0f), new Vector3(0.012f, 0.15f, 0.012f));
+
+            // The lantern itself hangs still on the hook until taken; let go, it falls to the ground.
+            var lantern = new GameObject("Lantern");
+            lantern.transform.SetParent(p, false);
+            lantern.transform.localPosition = new Vector3(0.4f, 1.17f, 0f);
+            var box = lantern.AddComponent<BoxCollider>();
+            box.center = new Vector3(0f, 0.04f, 0f);
+            box.size = new Vector3(0.22f, 0.42f, 0.22f);
+            var body = lantern.AddComponent<Rigidbody>();
+            body.isKinematic = true;
+            body.useGravity = false;
+            body.mass = 0.8f;
+            body.angularDamping = 1.5f;
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            var grab = lantern.AddComponent<XRGrabInteractable>();
+            grab.throwOnDetach = false;
+            grab.useDynamicAttach = true;
+
+            var l = lantern.transform;
+            Part(PrimitiveType.Cylinder, "Base", l, iron, new Vector3(0f, -0.15f, 0f), new Vector3(0.2f, 0.025f, 0.2f));
+            Part(PrimitiveType.Cylinder, "Rim", l, iron, new Vector3(0f, 0.13f, 0f), new Vector3(0.22f, 0.02f, 0.22f));
+            Part(PrimitiveType.Sphere, "Roof", l, iron, new Vector3(0f, 0.17f, 0f), new Vector3(0.2f, 0.1f, 0.2f));
+            Part(PrimitiveType.Sphere, "Finial", l, iron, new Vector3(0f, 0.23f, 0f), Vector3.one * 0.04f);
+            for (int k = 0; k < 4; k++)
+            {
+                float a = (45f + k * 90f) * Mathf.Deg2Rad;
+                Part(PrimitiveType.Cylinder, "Bar", l, iron, new Vector3(Mathf.Sin(a) * 0.085f, -0.01f, Mathf.Cos(a) * 0.085f), new Vector3(0.015f, 0.14f, 0.015f));
+            }
+            var handle = MeshObject("Handle", l, SaveMesh(CreateEllipticTorus(1f, 1f, 0.12f, 32, 8), "LanternHandle"), iron);
+            handle.transform.localPosition = new Vector3(0f, 0.26f, 0f);
+            handle.transform.localScale = new Vector3(0.07f, 0.07f, 0.6f);
+
+            var heart = Group("Flame", l);
+            heart.transform.localPosition = new Vector3(0f, -0.02f, 0f);
+            var turn = heart.AddComponent<DreamFloat>();
+            turn.bobHeight = 0f;
+            turn.spin = new Vector3(0f, 40f, 0f);
+            MeshObject("Flame Crystal", heart.transform, SaveMesh(CreateCrystal(0.045f, 0.15f), "LanternFlame"), flame)
+                .GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+            var light = PointLight(l, "Lantern Light", Vector3.zero, new Color(1f, 0.8f, 0.5f), 9f, 2.4f);
+            var embers = Particles(l, "Embers", new Vector3(0f, 0.02f, 0f), Vector3.one * 0.06f, 5f,
+                new Color(1f, 0.8f, 0.4f), new Color(1f, 0.55f, 0.2f), 0.01f, 0.025f, Sparkle(), 0.04f, 0.12f);
+            var emberMain = embers.main;
+            emberMain.startLifetime = new ParticleSystem.MinMaxCurve(1f, 2.5f);
+            var emberShape = embers.shape;
+            emberShape.rotation = new Vector3(-90f, 0f, 0f);
+
+            var dreamLantern = lantern.AddComponent<DreamLantern>();
+            dreamLantern.glow = light;
+            return dreamLantern;
+        }
+
         /// <summary>The portal back to the hub, on a little stone step. Facing its local +Z.</summary>
         static GameObject CreateWayHome(Transform parent, Vector3 position, float yaw, Material stepMat)
         {
@@ -646,93 +721,6 @@ namespace DreamStudio.Editor
             if (mesh != null)
                 return mesh;
             return SaveMesh(CreateEllipticTorus(1f, 1f, 0.02f, 96, 8), "Ring");
-        }
-
-        /// <summary>A cog lying in its local XZ plane: a disc with square teeth around the rim.</summary>
-        static GameObject CreateGear(Transform parent, string name, float radius, float thickness, int teeth, Material mat)
-        {
-            var gear = Group(name, parent);
-            var disc = CreatePrimitive(PrimitiveType.Cylinder, "Disc", gear.transform, mat, false);
-            disc.transform.localScale = new Vector3(radius * 2f, thickness * 0.5f, radius * 2f);
-            var hub = CreatePrimitive(PrimitiveType.Cylinder, "Hub", gear.transform, mat, false);
-            hub.transform.localScale = new Vector3(radius * 0.5f, thickness * 0.7f, radius * 0.5f);
-
-            float tooth = Mathf.PI * radius / teeth;
-            for (int i = 0; i < teeth; i++)
-            {
-                var rot = Quaternion.Euler(0f, i * 360f / teeth, 0f);
-                var t = Box("Tooth", gear.transform, mat, rot * new Vector3(0f, 0f, radius + tooth * 0.4f), new Vector3(tooth, thickness, tooth), false);
-                t.transform.localRotation = rot;
-            }
-            return gear;
-        }
-
-        /// <summary>
-        /// A spinning gear whose arms sweep low across the ground. Touching an arm wakes you up.
-        /// Inside <paramref name="safeRadius"/> there is no arm, so something can sit safely at the center.
-        /// </summary>
-        static GameObject Sweeper(Transform parent, Vector3 position, float length, float degreesPerSecond, int arms, float safeRadius,
-            Material gearMat, Material armMat, string message)
-        {
-            var sweeper = Group("Gear Sweeper", parent);
-            sweeper.transform.localPosition = position;
-            var spin = sweeper.AddComponent<DreamFloat>();
-            spin.bobHeight = 0f;
-            spin.spin = new Vector3(0f, degreesPerSecond, 0f);
-
-            var gear = CreateGear(sweeper.transform, "Hub Gear", 0.8f, 0.4f, 10, gearMat);
-            gear.transform.localPosition = new Vector3(0f, 0.2f, 0f);
-
-            for (int a = 0; a < arms; a++)
-            {
-                var rot = Quaternion.Euler(0f, a * 360f / arms, 0f);
-                float start = Mathf.Max(safeRadius, 0f);
-                var arm = Box("Arm", sweeper.transform, armMat, rot * new Vector3(0f, 0.5f, (start + length) * 0.5f),
-                    new Vector3(0.25f, 0.25f, length - start), false);
-                arm.transform.localRotation = rot;
-                var tip = CreatePrimitive(PrimitiveType.Sphere, "Tip", sweeper.transform, armMat, false);
-                tip.transform.localPosition = rot * new Vector3(0f, 0.5f, length);
-                tip.transform.localScale = Vector3.one * 0.5f;
-
-                for (float d = Mathf.Max(start, 0.6f); d <= length + 0.01f; d += 0.8f)
-                    Hazard(sweeper.transform, "Danger", rot * new Vector3(0f, 0.5f, d), 0.55f, message);
-            }
-            if (safeRadius <= 0f)
-                Hazard(sweeper.transform, "Danger", Vector3.up * 0.5f, 0.9f, message);
-            return sweeper;
-        }
-
-        /// <summary>A floating, spinning piece to collect. Its visual lives on a "Visual" child that hides once collected.</summary>
-        static DreamCollectible CreateCollectible(Transform parent, string name, Vector3 position, Mesh mesh, Material mat, Color glow, Material sparkle)
-        {
-            var piece = Group(name, parent);
-            piece.transform.localPosition = position;
-            var collectible = piece.AddComponent<DreamCollectible>();
-
-            var visual = Group("Visual", piece.transform);
-            var bob = visual.AddComponent<DreamFloat>();
-            bob.bobHeight = 0.1f;
-            bob.bobSpeed = 0.35f;
-            bob.spin = new Vector3(0f, 60f, 0f);
-            var gem = MeshObject("Gem", visual.transform, mesh, mat);
-            gem.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-            PointLight(visual.transform, "Glow", Vector3.zero, glow, 5f, 1.5f);
-            Particles(visual.transform, "Glimmer", Vector3.zero, Vector3.one * 0.6f, 6f, glow, Color.white, 0.02f, 0.05f, sparkle);
-
-            collectible.hideOnCollect = visual;
-            return collectible;
-        }
-
-        /// <summary>Hides <paramref name="reward"/>'s token until every collectible is found.</summary>
-        static void CollectionGoal(WorldContext ctx, DreamToken reward, string itemName, int required, string collectMessage, string completeMessage)
-        {
-            var goal = ctx.nightmare.gameObject.AddComponent<DreamCollectionGoal>();
-            goal.itemName = itemName;
-            goal.required = required;
-            goal.reward = reward.transform.parent.gameObject;
-            goal.collectMessage = collectMessage;
-            goal.completeMessage = completeMessage;
-            goal.reward.SetActive(false);
         }
 
         // =====================================================================
@@ -1294,23 +1282,14 @@ namespace DreamStudio.Editor
             var ctx = SetupWorld(world, Vector3.zero, 0f, true);
             var root = ctx.root;
 
-            var groundMat = Lit("Forest_Ground_Dream", new Color(0.42f, 0.72f, 0.42f), 0.2f, new Color(0.04f, 0.08f, 0.04f));
-            var barkMat = Lit("Forest_Bark_Dream", new Color(0.5f, 0.34f, 0.25f), 0.1f, new Color(0.04f, 0.02f, 0.01f));
+            var groundMat = Lit("Forest_Ground_Dream", new Color(0.95f, 0.93f, 0.9f), 0.08f, new Color(0.01f, 0.01f, 0.008f));
             var stoneMat = Lit("Forest_Stone_Dream", new Color(0.82f, 0.8f, 0.9f), 0.4f, new Color(0.1f, 0.08f, 0.14f));
             var leavesA = Lit("Forest_Leaves_A", new Color(0.45f, 0.85f, 0.5f), 0.2f, new Color(0.05f, 0.12f, 0.05f));
             var leavesB = Lit("Forest_Leaves_B", new Color(0.65f, 0.92f, 0.4f), 0.2f, new Color(0.06f, 0.1f, 0.03f));
-            var blossom = Lit("Forest_Blossom", new Color(1f, 0.72f, 0.86f), 0.2f, new Color(0.2f, 0.08f, 0.12f));
             var eyesMat = Lit("Forest_Eyes", new Color(1f, 0.1f, 0.05f), 0.5f, new Color(3f, 0.25f, 0.1f));
             var shadowMat = Lit("Forest_Shadow", new Color(0.01f, 0.01f, 0.015f), 0f, Color.black);
             var wispMat = Lit("Forest_Wisp", new Color(0.6f, 1f, 1f), 0.5f, new Color(0.8f, 1.6f, 1.8f));
             var tokenMat = Lit("Forest_TokenOfFear", new Color(0.35f, 0.05f, 0.5f), 0.9f, new Color(1.2f, 0.2f, 1.6f));
-            var flowerMats = new[]
-            {
-                Lit("Forest_Flower_Pink", new Color(1f, 0.6f, 0.8f), 0.3f, new Color(0.3f, 0.1f, 0.2f)),
-                Lit("Forest_Flower_Yellow", new Color(1f, 0.92f, 0.45f), 0.3f, new Color(0.3f, 0.25f, 0.05f)),
-                Lit("Forest_Flower_Blue", new Color(0.55f, 0.75f, 1f), 0.3f, new Color(0.1f, 0.15f, 0.3f)),
-                Lit("Forest_Flower_White", new Color(1f, 1f, 1f), 0.3f, new Color(0.25f, 0.25f, 0.25f)),
-            };
 
             var nightmare = ctx.nightmare;
             nightmare.tokenName = "Token of Fear";
@@ -1339,32 +1318,29 @@ namespace DreamStudio.Editor
             Boundary(root, 80f, 40);
             EdgeDressing(root, 82f, 46, stoneMat, new[] { leavesA, leavesB }, false, null, 3);
 
-            // --- Trees with full, blossoming canopies.
-            var trees = Group("Trees", root);
-            var canopies = Group("Canopies", root);
-            var occupied = new List<Vector3>();
-            foreach (var p in Scatter(380, 3.5f, 78f, 2.4f, occupied, (Vector3.zero, 4.5f), (tokenPos, 5.5f)))
+            // --- Trees: a few natural tree builds (leafy broadleaves and bare dead trees), each reused many
+            // times turned and scaled so no two neighbours match. Some leafy trees are in pale blossom.
+            var treeBark = Lit("Forest_TreeBark", new Color(0.95f, 0.92f, 0.88f), 0.08f, new Color(0.012f, 0.01f, 0.008f));
+            var deadBark = Lit("Forest_DeadBark", new Color(0.66f, 0.64f, 0.62f), 0.12f, new Color(0.01f, 0.01f, 0.01f));
+            var foliage = new[]
             {
-                float height = Random.Range(4.5f, 8f);
-                float radius = Random.Range(0.22f, 0.45f);
-                float yaw = Random.Range(0f, 360f);
+                DreamTrees.Foliage("Forest_Foliage_A", new Color(0.85f, 0.95f, 0.8f), false),
+                DreamTrees.Foliage("Forest_Foliage_B", new Color(1f, 0.97f, 0.8f), false),
+            };
+            var blossomFoliage = DreamTrees.Foliage("Forest_Foliage_Blossom", new Color(0.95f, 0.97f, 0.92f), true);
+            var leafyTrees = DreamTrees.LeafyVariants("ForestTree", 6);
+            var deadTrees = DreamTrees.DeadVariants("ForestDeadTree", 3);
 
-                var trunk = CreatePrimitive(PrimitiveType.Cylinder, "Tree", trees.transform, barkMat, true);
-                trunk.transform.localPosition = p + Vector3.up * height * 0.5f;
-                trunk.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
-                trunk.transform.localScale = new Vector3(radius * 2f, height * 0.5f, radius * 2f);
-
-                var canopy = Group("Canopy", canopies.transform);
-                canopy.transform.localPosition = p + Vector3.up * height;
-                var leafMat = Random.value < 0.3f ? blossom : (Random.value < 0.5f ? leavesA : leavesB);
-                int puffs = Random.Range(3, 6);
-                for (int c = 0; c < puffs; c++)
-                {
-                    var puff = CreatePrimitive(PrimitiveType.Sphere, "Leaves", canopy.transform, leafMat, false);
-                    float s = Random.Range(height * 0.3f, height * 0.45f);
-                    puff.transform.localPosition = new Vector3(Random.Range(-1f, 1f), Random.Range(-0.6f, 0.6f), Random.Range(-1f, 1f));
-                    puff.transform.localScale = new Vector3(s, s * 0.8f, s);
-                }
+            var trees = Group("Trees", root);
+            var occupied = new List<Vector3>();
+            var treeSpots = Scatter(380, 3.5f, 78f, 2.4f, occupied, (Vector3.zero, 4.5f), (tokenPos, 5.5f));
+            foreach (var p in treeSpots)
+            {
+                bool isDead = Random.value < 0.2f;
+                var variant = isDead ? deadTrees[Random.Range(0, deadTrees.Length)] : leafyTrees[Random.Range(0, leafyTrees.Length)];
+                var leaves = Random.value < 0.12f ? blossomFoliage : foliage[Random.Range(0, foliage.Length)];
+                DreamTrees.Place(trees.transform, variant, p + Vector3.down * 0.05f, Random.Range(0f, 360f), Random.Range(0.85f, 1.2f),
+                    isDead ? deadBark : treeBark, leaves);
             }
 
             // --- The clearing of standing stones where the Token of Fear waits.
@@ -1444,20 +1420,29 @@ namespace DreamStudio.Editor
 
             var eyes = WatchingEyes(root, eyesMat, 30, 15f, 70f);
 
-            // --- Forest life.
-            var flowers = Group("Dream Flowers", root);
-            foreach (var p in Scatter(450, 1.5f, 76f, 0.9f, null, (tokenPos, 1.5f)))
+            // --- The forest floor: grass, wildflowers, ferns, clover, moss, fallen leaves, shrubs, mushrooms,
+            // mossy rocks and fallen logs, with a trodden path following the wisps to the clearing.
+            var floorSettings = new DreamUnderstory.Settings
             {
-                var flower = Group("Flower", flowers.transform);
-                flower.transform.localPosition = p;
-                var stem = CreatePrimitive(PrimitiveType.Cylinder, "Stem", flower.transform, leavesA, false);
-                stem.transform.localPosition = new Vector3(0f, 0.2f, 0f);
-                stem.transform.localScale = new Vector3(0.03f, 0.2f, 0.03f);
-                var bloom = CreatePrimitive(PrimitiveType.Sphere, "Bloom", flower.transform, flowerMats[Random.Range(0, flowerMats.Length)], false);
-                bloom.transform.localPosition = new Vector3(0f, 0.42f, 0f);
-                bloom.transform.localScale = new Vector3(1f, 0.6f, 1f) * Random.Range(0.12f, 0.2f);
-                bloom.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+                prefix = "Forest",
+                groundHeight = GroundHeight,
+                groundNormal = GroundNormal,
+                trees = treeSpots,
+                radius = 76f,
+                bark = treeBark,
+                shrubLeaves = foliage[0],
+                seed = 4401,
+            };
+            for (int i = 0; i <= 39; i++)
+            {
+                float t = i / 39f;
+                var side = Vector3.Cross(Vector3.up, tokenPos.normalized) * Mathf.Sin(t * Mathf.PI * 3f) * 2.5f;
+                floorSettings.path.Add(OnGround(Vector3.Lerp(new Vector3(0f, 0f, 2f), tokenPos, t) + side));
             }
+            floorSettings.open.Add((Vector3.zero, 3f));
+            floorSettings.open.Add((new Vector3(0f, 0f, 4f), 2.5f));
+            floorSettings.open.Add((tokenPos, 4.8f));
+            DreamUnderstory.Build(root, floorSettings);
             var fireflies = Particles(root, "Fireflies", new Vector3(0f, 1.5f, 0f), new Vector3(90f, 3f, 90f), 80f,
                 new Color(1f, 0.95f, 0.5f), new Color(0.7f, 1f, 0.6f), 0.04f, 0.08f, ctx.sparkle);
             var home = CreateWayHome(root, new Vector3(0f, 0f, 4f), 180f, stoneMat);
@@ -1479,30 +1464,16 @@ namespace DreamStudio.Editor
             var ctx = SetupWorld(world, Vector3.zero, 0f, true);
             var root = ctx.root;
             ctx.sun.transform.rotation = Quaternion.Euler(75f, -20f, 0f);
+            DreamFish.Reset();
 
-            var sandMat = Lit("Ocean_Sand_Dream", new Color(0.95f, 0.88f, 0.7f), 0.15f, new Color(0.08f, 0.07f, 0.05f));
-            var rockMat = Lit("Ocean_Rock_Dream", new Color(0.5f, 0.55f, 0.68f), 0.3f, new Color(0.04f, 0.05f, 0.08f));
-            var kelpMat = Lit("Ocean_Kelp_Dream", new Color(0.3f, 0.85f, 0.45f), 0.3f, new Color(0.03f, 0.12f, 0.06f));
+            var sandMat = Lit("Ocean_Sand_Dream", new Color(0.95f, 0.93f, 0.88f), 0.1f, new Color(0.012f, 0.012f, 0.01f));
+            var rockMat = Lit("Ocean_Rock_Dream", new Color(0.5f, 0.48f, 0.45f), 0.2f, new Color(0.01f, 0.01f, 0.01f));
             var templeMat = Lit("Ocean_Temple_Dream", new Color(0.85f, 0.88f, 0.95f), 0.5f, new Color(0.1f, 0.12f, 0.16f));
-            var wreckMat = Lit("Ocean_Wreck_Dream", new Color(0.5f, 0.35f, 0.25f), 0.2f, new Color(0.04f, 0.02f, 0.01f));
             var bubbleMat = Lit("Ocean_Bubble", new Color(0.75f, 0.95f, 1f), 1f, new Color(0.4f, 0.7f, 0.9f));
             var shellMat = Lit("Ocean_MagicShell", new Color(1f, 0.85f, 0.8f), 0.9f, new Color(1.2f, 0.7f, 0.9f));
             var clamMat = Lit("Ocean_Clam", new Color(0.35f, 0.3f, 0.45f), 0.6f, new Color(0.08f, 0.05f, 0.12f));
             var lureMat = Lit("Ocean_Lure", new Color(0.9f, 1f, 0.4f), 0.5f, new Color(1.8f, 2f, 0.5f));
             var jellyMat = Lit("Ocean_Jelly", new Color(0.8f, 0.5f, 1f), 0.8f, new Color(0.8f, 0.4f, 1.2f));
-            var coralMats = new[]
-            {
-                Lit("Ocean_Coral_Pink", new Color(1f, 0.45f, 0.6f), 0.3f, new Color(0.35f, 0.08f, 0.15f)),
-                Lit("Ocean_Coral_Orange", new Color(1f, 0.6f, 0.3f), 0.3f, new Color(0.35f, 0.15f, 0.05f)),
-                Lit("Ocean_Coral_Purple", new Color(0.7f, 0.45f, 1f), 0.3f, new Color(0.2f, 0.1f, 0.35f)),
-                Lit("Ocean_Coral_Teal", new Color(0.3f, 1f, 0.85f), 0.3f, new Color(0.05f, 0.3f, 0.25f)),
-            };
-            var fishMats = new[]
-            {
-                Lit("Ocean_Fish_Gold", new Color(1f, 0.8f, 0.2f), 0.7f, new Color(0.2f, 0.15f, 0.02f)),
-                Lit("Ocean_Fish_Blue", new Color(0.3f, 0.6f, 1f), 0.7f, new Color(0.05f, 0.1f, 0.25f)),
-                Lit("Ocean_Fish_Coral", new Color(1f, 0.5f, 0.45f), 0.7f, new Color(0.2f, 0.08f, 0.06f)),
-            };
 
             var nightmare = ctx.nightmare;
             nightmare.tokenName = "Magic Shell";
@@ -1552,56 +1523,15 @@ namespace DreamStudio.Editor
 
             var templePos = new Vector3(36f, 0f, 44f);
             var wreckPos = new Vector3(-30f, 0f, 14f);
-            UseTerrain(world.scene, 2f, 78f, 7f, (Vector3.zero, 7f), (templePos, 6.5f), (wreckPos, 6.5f));
+            UseTerrain(world.scene, 2f, 78f, 7f, (Vector3.zero, 7f), (templePos, 6.5f), (wreckPos, 9f));
             Ground(root, sandMat, 230f);
             Boundary(root, 80f, 40);
-            EdgeDressing(root, 82f, 40, rockMat, coralMats, false, null, 2);
+            EdgeDressing(root, 82f, 40, rockMat, null, false, null, 2);
             var occupied = new List<Vector3>();
 
-            // --- Rocks and kelp.
-            var rocks = Group("Rocks", root);
-            foreach (var p in Scatter(160, 5f, 74f, 3f, occupied, (Vector3.zero, 4f), (templePos, 7f), (wreckPos, 6f)))
-            {
-                var rock = CreatePrimitive(PrimitiveType.Sphere, "Rock", rocks.transform, rockMat, true);
-                var s = new Vector3(Random.Range(0.8f, 2.5f), Random.Range(0.5f, 1.5f), Random.Range(0.8f, 2.5f));
-                rock.transform.localPosition = p + Vector3.up * s.y * 0.3f;
-                rock.transform.localRotation = Quaternion.Euler(Random.Range(-10f, 10f), Random.Range(0f, 360f), Random.Range(-10f, 10f));
-                rock.transform.localScale = s;
-                UseMeshCollider(rock);
-            }
-
-            var kelpForest = Group("Kelp", root);
-            foreach (var p in Scatter(400, 3f, 74f, 1.2f, occupied, (Vector3.zero, 3f), (templePos, 6f), (wreckPos, 5f)))
-            {
-                var strand = Group("Kelp Strand", kelpForest.transform);
-                strand.transform.localPosition = p;
-                strand.transform.localRotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-                var sway = strand.AddComponent<DreamSway>();
-                sway.angle = Random.Range(6f, 12f);
-                sway.speed = Random.Range(0.15f, 0.3f);
-
-                float h = Random.Range(2f, 6f);
-                Box("Stalk", strand.transform, kelpMat, new Vector3(0f, h * 0.5f, 0f), new Vector3(0.15f, h, 0.04f), false);
-                int leaves = Random.Range(2, 5);
-                for (int l = 0; l < leaves; l++)
-                {
-                    var leaf = Box("Leaf", strand.transform, kelpMat, new Vector3(0f, Random.Range(h * 0.3f, h * 0.9f), 0f), new Vector3(0.35f, 0.8f, 0.03f), false);
-                    leaf.transform.localRotation = Quaternion.Euler(0f, Random.Range(0f, 180f), (l % 2 == 0 ? 1f : -1f) * 35f);
-                }
-            }
-
-            // --- A sunken shipwreck landmark.
-            var wreck = Group("Shipwreck", root);
-            wreck.transform.localPosition = wreckPos;
-            wreck.transform.localRotation = Quaternion.Euler(0f, 35f, 0f);
-            var hull = Box("Hull", wreck.transform, wreckMat, new Vector3(0f, 0.9f, 0f), new Vector3(3.2f, 2f, 9f));
-            hull.transform.localRotation = Quaternion.Euler(0f, 0f, 18f);
-            var deck = Box("Broken Deck", wreck.transform, wreckMat, new Vector3(0.6f, 2f, -2f), new Vector3(2.6f, 0.15f, 4f));
-            deck.transform.localRotation = Quaternion.Euler(8f, 0f, 22f);
-            var mast = CreatePrimitive(PrimitiveType.Cylinder, "Mast", wreck.transform, wreckMat, true);
-            mast.transform.localPosition = new Vector3(1.6f, 3f, 1f);
-            mast.transform.localRotation = Quaternion.Euler(0f, 0f, -35f);
-            mast.transform.localScale = new Vector3(0.25f, 3f, 0.25f);
+            // --- A sunken sailing ship: a planked hull rolled on its side and torn open, ribs showing, with
+            // its mast, barrels, crates, planks, anchor and cannons strewn over the sand.
+            DreamShipwreck.Build(root, OnGround(wreckPos), 35f, GroundHeight, 7700);
 
             // --- The sunken temple holding the Magic Shell.
             var temple = Group("Sunken Temple", root);
@@ -1692,35 +1622,24 @@ namespace DreamStudio.Editor
 
             var eyes = WatchingEyes(root, lureMat, 24, 15f, 70f);
 
-            // --- Reef life.
-            var coral = Group("Coral Garden", root);
-            foreach (var p in Scatter(200, 3f, 72f, 1.5f, null, (Vector3.zero, 3f), (templePos, 6f), (wreckPos, 5f)))
+            // --- The sea bottom: rippled sand, algae-capped boulders, giant kelp forests, reefs of branching,
+            // brain and table corals with tube sponges, sea fans and sea whips, seagrass meadows, seaweed,
+            // turf algae, shell rubble, starfish and sea urchins. The wreck, temple, vents and start stay clear.
+            var seaFloor = new DreamUnderstory.Settings
             {
-                var cluster = Group("Coral", coral.transform);
-                cluster.transform.localPosition = p;
-                int pieces = Random.Range(3, 7);
-                for (int c = 0; c < pieces; c++)
-                {
-                    var mat = coralMats[Random.Range(0, coralMats.Length)];
-                    var offset = new Vector3(Random.Range(-0.5f, 0.5f), 0f, Random.Range(-0.5f, 0.5f));
-                    if (Random.value < 0.6f)
-                    {
-                        float len = Random.Range(0.3f, 0.8f);
-                        var rot = Quaternion.Euler(Random.Range(-30f, 30f), Random.Range(0f, 360f), Random.Range(-30f, 30f));
-                        var branch = CreatePrimitive(PrimitiveType.Cylinder, "Branch Coral", cluster.transform, mat, false);
-                        branch.transform.localRotation = rot;
-                        branch.transform.localPosition = offset + rot * Vector3.up * len * 0.5f;
-                        branch.transform.localScale = new Vector3(0.08f, len * 0.5f, 0.08f);
-                    }
-                    else
-                    {
-                        float s = Random.Range(0.3f, 0.6f);
-                        var brain = CreatePrimitive(PrimitiveType.Sphere, "Brain Coral", cluster.transform, mat, false);
-                        brain.transform.localPosition = offset + Vector3.up * s * 0.25f;
-                        brain.transform.localScale = new Vector3(s, s * 0.6f, s);
-                    }
-                }
-            }
+                prefix = "Reef",
+                groundHeight = GroundHeight,
+                groundNormal = GroundNormal,
+                radius = 76f,
+                seed = 5501,
+            };
+            seaFloor.open.Add((Vector3.zero, 3f));
+            seaFloor.open.Add((new Vector3(0f, 0f, 4f), 2.5f));
+            seaFloor.open.Add((templePos, 6.5f));
+            seaFloor.open.Add((wreckPos, 8.5f));
+            foreach (var p in ventPoints)
+                seaFloor.open.Add((p, 1.2f));
+            occupied.AddRange(DreamReef.Build(root, seaFloor, rockMat));
 
             var schools = Group("Fish Schools", root);
             for (int i = 0; i < 16; i++)
@@ -1735,22 +1654,21 @@ namespace DreamStudio.Editor
                 float dir = Random.value < 0.5f ? 1f : -1f;
                 swim.spin = new Vector3(0f, dir * Random.Range(20f, 35f), 0f);
 
-                var mat = fishMats[Random.Range(0, fishMats.Length)];
-                int count = Random.Range(6, 11);
+                // Herring swim in big, tight schools; yellowtail and snapper in small, loose ones.
+                var species = (DreamFish.Species)Random.Range(0, 3);
+                bool herring = species == DreamFish.Species.Herring;
+                int count = herring ? Random.Range(14, 22) : Random.Range(5, 9);
                 for (int f = 0; f < count; f++)
                 {
                     float fa = Random.Range(0f, 360f);
-                    float fr = Random.Range(2f, 4f);
-                    var pos = Quaternion.Euler(0f, fa, 0f) * Vector3.forward * fr + Vector3.up * Random.Range(-0.5f, 0.5f);
+                    float fr = herring ? Random.Range(2.2f, 3.2f) : Random.Range(2f, 4f);
+                    var pos = Quaternion.Euler(0f, fa, 0f) * Vector3.forward * fr + Vector3.up * Random.Range(herring ? -0.35f : -0.5f, herring ? 0.35f : 0.5f);
                     // Swim direction is tangent to the circle, matching the school's spin.
                     var tangent = Vector3.Cross(Vector3.up, pos.normalized) * dir;
-                    var fish = Group("Fish", school.transform);
+                    var fish = DreamFish.Create(school.transform, species);
                     fish.transform.localPosition = pos;
-                    fish.transform.localRotation = Quaternion.LookRotation(tangent, Vector3.up);
-                    var fishBody = CreatePrimitive(PrimitiveType.Capsule, "Body", fish.transform, mat, false);
-                    fishBody.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-                    fishBody.transform.localScale = new Vector3(0.12f, 0.15f, 0.08f);
-                    Box("Tail", fish.transform, mat, new Vector3(0f, 0f, -0.18f), new Vector3(0.02f, 0.12f, 0.08f), false);
+                    fish.transform.localRotation = Quaternion.LookRotation(tangent, Vector3.up) * Quaternion.Euler(Random.Range(-5f, 5f), 0f, 0f);
+                    fish.transform.localScale = Vector3.one * Random.Range(0.85f, 1.15f);
                 }
             }
 
@@ -1776,7 +1694,7 @@ namespace DreamStudio.Editor
             var home = CreateWayHome(root, new Vector3(0f, 0f, 4f), 180f, templeMat);
 
             PlaceArtifacts(ctx, new Color(0.2f, 1f, 0.6f), new Color(0.6f, 0.95f, 1f), GroundRoute(new Vector3(0f, 0f, 7f), templePos, 7f),
-                Scatter(12, 8f, 70f, 3f, occupied, (Vector3.zero, 6f), (templePos, 8f), (wreckPos, 7f)));
+                Scatter(12, 8f, 70f, 3f, occupied, (Vector3.zero, 6f), (templePos, 8f), (wreckPos, 9f)));
             // --- Nightmare: ocean currents that drag swimmers off course, shown as streaming motes.
             var currents = Group("Currents", root);
             foreach (var p in Scatter(7, 12f, 64f, 14f, null, (Vector3.zero, 9f), (templePos, 9f)))
@@ -1798,665 +1716,7 @@ namespace DreamStudio.Editor
         }
 
         // =====================================================================
-        // 3. Candy Forest — avoid the sour slime, gather Sugar Stars, find the Golden Lollipop
-        // =====================================================================
-
-        static void BuildCandyForest(World world)
-        {
-            var ctx = SetupWorld(world, Vector3.zero, 0f, true);
-            var root = ctx.root;
-
-            var frosting = Lit("Candy_Frosting", new Color(1f, 0.8f, 0.88f), 0.5f, new Color(0.12f, 0.05f, 0.08f));
-            var stick = Lit("Candy_Stick", new Color(1f, 0.97f, 0.92f), 0.6f, new Color(0.1f, 0.1f, 0.1f));
-            var gingerbread = Lit("Candy_Gingerbread", new Color(0.72f, 0.42f, 0.2f), 0.2f, new Color(0.06f, 0.03f, 0.01f));
-            var icing = Lit("Candy_Icing", Color.white, 0.7f, new Color(0.2f, 0.2f, 0.22f));
-            var stripe = Lit("Candy_Stripe", new Color(1f, 0.15f, 0.2f), 0.7f, new Color(0.25f, 0.02f, 0.04f));
-            var candyMats = new[]
-            {
-                Lit("Candy_Pink", new Color(1f, 0.45f, 0.7f), 0.8f, new Color(0.3f, 0.08f, 0.18f)),
-                Lit("Candy_Mint", new Color(0.45f, 1f, 0.75f), 0.8f, new Color(0.08f, 0.3f, 0.18f)),
-                Lit("Candy_Lemon", new Color(1f, 0.9f, 0.35f), 0.8f, new Color(0.3f, 0.25f, 0.05f)),
-                Lit("Candy_Grape", new Color(0.7f, 0.45f, 1f), 0.8f, new Color(0.18f, 0.08f, 0.3f)),
-                Lit("Candy_Orange", new Color(1f, 0.6f, 0.25f), 0.8f, new Color(0.3f, 0.14f, 0.04f)),
-            };
-            var slimeMat = Lit("Candy_SourSlime", new Color(0.4f, 0.9f, 0.1f), 0.9f, new Color(0.5f, 1.2f, 0.1f));
-            var eyesMat = Lit("Candy_Eyes", new Color(0.7f, 1f, 0.2f), 0.5f, new Color(1.2f, 2f, 0.2f));
-            var starMat = Lit("Candy_SugarStar", new Color(1f, 0.95f, 0.6f), 0.9f, new Color(1.8f, 1.5f, 0.6f));
-            var goldMat = Lit("Candy_GoldenLollipop", new Color(1f, 0.8f, 0.3f), 0.95f, new Color(1.6f, 1.1f, 0.3f));
-            var cottonMat = Lit("Candy_CottonCandy", new Color(1f, 0.8f, 0.95f), 0.1f, new Color(0.35f, 0.25f, 0.35f));
-
-            var nightmare = ctx.nightmare;
-            nightmare.tokenName = "Golden Lollipop";
-            nightmare.introMessage = "The Candy Forest has gone sour...\nDon't step in the bubbling slime!\nCollect the Sugar Stars to wake the Golden Lollipop.";
-            nightmare.dreamMessage = "Sweetness floods back into the forest.\nEverything is delicious again!\nA portal home now waits where you started.";
-            var atmosphere = new Atmosphere
-            {
-                sky = Sky("Candy_Sky_Dream", new Color(0.45f, 0.7f, 1f), new Color(1f, 0.75f, 0.88f),
-                    new Color(1f, 0.85f, 0.7f), new Color(1f, 0.6f, 0.9f), 30f),
-                fogColor = new Color(1f, 0.85f, 0.92f),
-                fogDensity = 0.016f,
-                ambientSky = new Color(0.8f, 0.7f, 0.85f),
-                ambientEquator = new Color(0.9f, 0.7f, 0.75f),
-                ambientGround = new Color(0.5f, 0.4f, 0.4f),
-                sunColor = new Color(1f, 0.95f, 0.88f),
-                sunIntensity = 1.2f,
-            };
-            ApplyAtmosphere(atmosphere, ctx.sun);
-            ctx.vision.nightmare = NightmareLook(new Color(0.45f, 0.48f, 0.26f));
-
-
-            var housePos = new Vector3(10f, 0f, 58f);
-            var tokenPos = housePos + new Vector3(0f, 0f, -5f);
-            var homePos = new Vector3(0f, 0f, 4f);
-            UseTerrain(world.scene, 2f, 78f, 8f, (Vector3.zero, 7f), (housePos, 7.5f), (tokenPos, 3f));
-            Ground(root, frosting, 230f);
-            Boundary(root, 80f, 40);
-            EdgeDressing(root, 82f, 44, icing, candyMats, false, null, 0);
-            var occupied = new List<Vector3>();
-            var starPoints = Scatter(5, 18f, 70f, 20f, occupied, (Vector3.zero, 6f), (housePos, 8f));
-
-            // --- Lollipop trees: a stick with a big swirled disc of candy.
-            var ring = RingMesh();
-            var trees = Group("Lollipop Trees", root);
-            foreach (var p in Scatter(200, 4.5f, 78f, 3f, occupied, (Vector3.zero, 4.5f), (housePos, 7f), (tokenPos, 3f)))
-            {
-                var tree = Group("Lollipop Tree", trees.transform);
-                tree.transform.localPosition = p;
-                tree.transform.localRotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-                float h = Random.Range(2.5f, 5f);
-                float d = Random.Range(1.4f, 2.4f);
-
-                var trunk = CreatePrimitive(PrimitiveType.Cylinder, "Stick", tree.transform, stick, true);
-                trunk.transform.localPosition = Vector3.up * h * 0.5f;
-                trunk.transform.localScale = new Vector3(0.14f, h * 0.5f, 0.14f);
-
-                var candy = CreatePrimitive(PrimitiveType.Cylinder, "Candy", tree.transform, candyMats[Random.Range(0, candyMats.Length)], false);
-                candy.transform.localPosition = Vector3.up * (h + d * 0.45f);
-                candy.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-                candy.transform.localScale = new Vector3(d, 0.06f, d);
-                foreach (float r in new[] { 0.18f, 0.32f })
-                {
-                    var swirl = MeshObject("Swirl", tree.transform, ring, icing);
-                    swirl.transform.localPosition = candy.transform.localPosition;
-                    swirl.transform.localScale = new Vector3(d * r, d * r, 4.5f);
-                }
-            }
-
-            // --- Candy canes.
-            var canes = Group("Candy Canes", root);
-            foreach (var p in Scatter(70, 5f, 76f, 3f, occupied, (Vector3.zero, 5f), (housePos, 7f), (tokenPos, 3f)))
-            {
-                var cane = Group("Candy Cane", canes.transform);
-                cane.transform.localPosition = p;
-                cane.transform.localRotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-                float h = Random.Range(2f, 3.2f);
-
-                var shaft = CreatePrimitive(PrimitiveType.Cylinder, "Shaft", cane.transform, stick, true);
-                shaft.transform.localPosition = Vector3.up * h * 0.5f;
-                shaft.transform.localScale = new Vector3(0.22f, h * 0.5f, 0.22f);
-                for (float y = 0.3f; y < h; y += 0.45f)
-                {
-                    var band = CreatePrimitive(PrimitiveType.Cylinder, "Stripe", cane.transform, stripe, false);
-                    band.transform.localPosition = Vector3.up * y;
-                    band.transform.localRotation = Quaternion.Euler(0f, 0f, 25f);
-                    band.transform.localScale = new Vector3(0.235f, 0.06f, 0.235f);
-                }
-
-                // The hook: short segments around a half circle.
-                const float hookRadius = 0.4f;
-                for (int s = 0; s <= 6; s++)
-                {
-                    float a = s / 6f * Mathf.PI;
-                    var seg = CreatePrimitive(PrimitiveType.Cylinder, "Hook", cane.transform, s % 2 == 0 ? stick : stripe, false);
-                    seg.transform.localPosition = new Vector3(hookRadius - Mathf.Cos(a) * hookRadius, h + Mathf.Sin(a) * hookRadius, 0f);
-                    seg.transform.localRotation = Quaternion.Euler(0f, 0f, -a * Mathf.Rad2Deg);
-                    seg.transform.localScale = new Vector3(0.22f, 0.17f, 0.22f);
-                }
-            }
-
-            var gumdrops = Group("Gumdrops", root);
-            foreach (var p in Scatter(230, 2f, 78f, 1.2f, null, (housePos, 6f), (tokenPos, 2f), (homePos, 2f)))
-            {
-                float s = Random.Range(0.3f, 0.7f);
-                var drop = CreatePrimitive(PrimitiveType.Sphere, "Gumdrop", gumdrops.transform, candyMats[Random.Range(0, candyMats.Length)], false);
-                drop.transform.localPosition = p;
-                drop.transform.localScale = new Vector3(s, s * 1.1f, s);
-            }
-
-            // --- The gingerbread house, front door facing the spawn (-Z).
-            var house = Group("Gingerbread House", root);
-            house.transform.localPosition = housePos;
-            Box("Walls", house.transform, gingerbread, new Vector3(0f, 1.75f, 0f), new Vector3(6f, 3.5f, 5f));
-            Box("Door", house.transform, stripe, new Vector3(0f, 1.1f, -2.52f), new Vector3(1.3f, 2.2f, 0.06f), false);
-            for (int side = -1; side <= 1; side += 2)
-            {
-                Box("Window", house.transform, candyMats[2], new Vector3(side * 1.8f, 2f, -2.52f), new Vector3(0.9f, 0.9f, 0.06f), false);
-                var slab = Box("Roof", house.transform, icing, new Vector3(side * 1.5f, 4.55f, 0f), new Vector3(3.9f, 0.25f, 5.6f), false);
-                slab.transform.localRotation = Quaternion.Euler(0f, 0f, -side * 35f);
-            }
-            Box("Chimney", house.transform, stripe, new Vector3(1.8f, 5.2f, 1.2f), new Vector3(0.6f, 1.4f, 0.6f), false);
-            for (int i = 0; i < 6; i++)
-            {
-                var drop = CreatePrimitive(PrimitiveType.Sphere, "Roof Gumdrop", house.transform, candyMats[i % candyMats.Length], false);
-                drop.transform.localPosition = new Vector3(0f, 5.65f, -2.4f + i * 0.96f);
-                drop.transform.localScale = Vector3.one * 0.35f;
-            }
-
-            // --- The cake pedestal and the Golden Lollipop, which appears once every Sugar Star is found.
-            var cake = Group("Cake Pedestal", root);
-            cake.transform.localPosition = tokenPos;
-            var tier = CreatePrimitive(PrimitiveType.Cylinder, "Tier", cake.transform, candyMats[0], true);
-            tier.transform.localPosition = new Vector3(0f, 0.25f, 0f);
-            tier.transform.localScale = new Vector3(1.2f, 0.25f, 1.2f);
-            var topTier = CreatePrimitive(PrimitiveType.Cylinder, "Top Tier", cake.transform, icing, false);
-            topTier.transform.localPosition = new Vector3(0f, 0.7f, 0f);
-            topTier.transform.localScale = new Vector3(0.9f, 0.2f, 0.9f);
-
-            var token = CreateToken(root, "Golden Lollipop", tokenPos + Vector3.up * 1.5f, new Color(1f, 0.8f, 0.3f),
-                "The Golden Lollipop shimmers nearby...\nReach out and grab it!", out var lollipop);
-            token.hintDistance = 7f;
-            var lolliStick = CreatePrimitive(PrimitiveType.Cylinder, "Stick", lollipop, stick, false);
-            lolliStick.transform.localPosition = new Vector3(0f, -0.15f, 0f);
-            lolliStick.transform.localScale = new Vector3(0.03f, 0.18f, 0.03f);
-            var lolliCandy = CreatePrimitive(PrimitiveType.Cylinder, "Candy", lollipop, goldMat, false);
-            lolliCandy.transform.localPosition = new Vector3(0f, 0.1f, 0f);
-            lolliCandy.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            lolliCandy.transform.localScale = new Vector3(0.3f, 0.03f, 0.3f);
-            Particles(token.transform.parent, "Golden Glimmer", Vector3.zero, new Vector3(1f, 1f, 1f), 12f,
-                new Color(1f, 0.85f, 0.4f), Color.white, 0.03f, 0.07f, ctx.sparkle);
-
-            var starMesh = SaveMesh(CreateCrystal(0.16f, 0.22f), "SugarStar");
-            var stars = Group("Sugar Stars", root);
-            foreach (var p in starPoints)
-                CreateCollectible(stars.transform, "Sugar Star", p + Vector3.up * 1.3f, starMesh, starMat, new Color(1f, 0.9f, 0.5f), ctx.sparkle);
-            CollectionGoal(ctx, token, "SUGAR STARS", starPoints.Count, "A Sugar Star! Sweet!",
-                "All the Sugar Stars glow together...\nThe Golden Lollipop has appeared by the gingerbread house!");
-
-            // --- Nightmare: sour slime pools and watching eyes.
-            const string slimeMessage = "You stepped in the sour slime...\nYou wake up where you started.";
-            var slime = Group("Sour Slime", root);
-            foreach (var p in Scatter(40, 6f, 74f, 4f, occupied, (Vector3.zero, 6f), (housePos, 7f), (tokenPos, 3f)))
-            {
-                float r = Random.Range(0.9f, 1.6f);
-                var pool = Hazard(slime.transform, "Slime Pool", p, r + 0.1f, slimeMessage).gameObject;
-                var creep = pool.AddComponent<DreamCreep>();
-                creep.maxGrowth = 1.8f;
-                creep.growTime = 200f;
-                pool.transform.localRotation = AlongGround(p);
-                var puddle = CreatePrimitive(PrimitiveType.Cylinder, "Puddle", pool.transform, slimeMat, false);
-                puddle.transform.localPosition = new Vector3(0f, 0.02f, 0f);
-                puddle.transform.localScale = new Vector3(r * 2f, 0.02f, r * 2f);
-                var bubbles = Particles(pool.transform, "Bubbles", Vector3.up * 0.1f, new Vector3(r * 1.4f, r * 1.4f, 0.1f), 5f,
-                    new Color(0.6f, 1f, 0.2f), new Color(0.3f, 0.8f, 0.1f), 0.05f, 0.12f, ctx.sparkle, 0.1f, 0.3f);
-                var shape = bubbles.shape;
-                shape.rotation = new Vector3(-90f, 0f, 0f);
-                PointLight(pool.transform, "Glow", Vector3.up * 0.5f, new Color(0.5f, 1f, 0.2f), r * 3f, 0.8f);
-            }
-
-            var eyes = WatchingEyes(root, eyesMat, 28, 15f, 70f);
-
-            // --- Cotton candy clouds and sprinkles.
-            var clouds = Group("Cotton Candy Clouds", root);
-            for (int i = 0; i < 36; i++)
-            {
-                float a = Random.Range(0f, Mathf.PI * 2f);
-                float dist = Random.Range(5f, 70f);
-                var cloud = Group("Cotton Candy", clouds.transform);
-                cloud.transform.localPosition = new Vector3(Mathf.Cos(a) * dist, Random.Range(9f, 14f), Mathf.Sin(a) * dist);
-                int puffs = Random.Range(4, 7);
-                for (int c = 0; c < puffs; c++)
-                {
-                    var puff = CreatePrimitive(PrimitiveType.Sphere, "Puff", cloud.transform, cottonMat, false);
-                    float s = Random.Range(1.2f, 2.2f);
-                    puff.transform.localPosition = new Vector3(Random.Range(-1.5f, 1.5f), Random.Range(-0.3f, 0.4f), Random.Range(-0.8f, 0.8f));
-                    puff.transform.localScale = new Vector3(s * 1.2f, s * 0.8f, s);
-                    puff.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-                }
-                var drift = cloud.AddComponent<DreamFloat>();
-                drift.bobHeight = 0.4f;
-                drift.bobSpeed = Random.Range(0.04f, 0.08f);
-                drift.spin = new Vector3(0f, Random.Range(-3f, 3f), 0f);
-            }
-            var sprinkles = Particles(root, "Sprinkles", new Vector3(0f, 2f, 0f), new Vector3(90f, 4f, 90f), 80f,
-                new Color(1f, 0.5f, 0.8f), new Color(0.5f, 0.9f, 1f), 0.03f, 0.07f, ctx.sparkle);
-            var home = CreateWayHome(root, homePos, 180f, icing);
-
-            PlaceArtifacts(ctx, new Color(0.6f, 1f, 0.1f), new Color(1f, 0.6f, 0.85f), GroundRoute(new Vector3(0f, 0f, 7f), tokenPos, 7f),
-                Scatter(12, 8f, 72f, 3f, occupied, (Vector3.zero, 6f), (housePos, 8f), (tokenPos, 4f)));
-            nightmare.nightmareOnly = new[] { slime, eyes };
-            nightmare.dreamOnly = new[] { home };
-            foreach (var go in nightmare.dreamOnly)
-                go.SetActive(false);
-        }
-
-        // =====================================================================
-        // 4. Clockwork Moon — beat the midnight clock, dodge the gears, find the Moon Key
-        // =====================================================================
-
-        static void BuildClockworkMoon(World world)
-        {
-            var ctx = SetupWorld(world, Vector3.zero, 0f, true);
-            var root = ctx.root;
-            ctx.sun.transform.rotation = Quaternion.Euler(35f, -50f, 0f);
-
-            var dust = Lit("Moon_Dust", new Color(0.78f, 0.76f, 0.9f), 0.15f, new Color(0.06f, 0.05f, 0.1f));
-            var rock = Lit("Moon_Rock", new Color(0.6f, 0.58f, 0.72f), 0.2f, new Color(0.04f, 0.03f, 0.07f));
-            var brass = Lit("Moon_Brass", new Color(1f, 0.78f, 0.35f), 0.85f, new Color(0.35f, 0.22f, 0.05f));
-            var stone = Lit("Moon_Tower", new Color(0.95f, 0.92f, 1f), 0.5f, new Color(0.1f, 0.09f, 0.14f));
-            var clockFace = Lit("Moon_ClockFace", new Color(1f, 0.97f, 0.85f), 0.6f, new Color(0.9f, 0.85f, 0.6f));
-            var iron = Lit("Moon_Iron", new Color(0.08f, 0.08f, 0.1f), 0.7f, Color.black);
-            var hotIron = Lit("Moon_HotIron", new Color(0.5f, 0.1f, 0.05f), 0.6f, new Color(1.6f, 0.3f, 0.05f));
-            var eyesMat = Lit("Moon_Eyes", new Color(1f, 0.6f, 0.1f), 0.5f, new Color(2.5f, 1.2f, 0.1f));
-            var keyMat = Lit("Moon_Key", new Color(0.85f, 0.9f, 1f), 0.95f, new Color(0.9f, 1.1f, 1.6f));
-            var lanternMat = Lit("Moon_Lantern", new Color(1f, 0.9f, 0.6f), 0.5f, new Color(2f, 1.6f, 0.8f));
-            var planetMat = Lit("Moon_Planet", new Color(0.3f, 0.55f, 1f), 0.6f, new Color(0.15f, 0.3f, 0.6f));
-
-            var nightmare = ctx.nightmare;
-            nightmare.tokenName = "Moon Key";
-            nightmare.introMessage = "The Clockwork Moon is grinding toward midnight...\nDodge the sweeping gears.\nFind the Moon Key before the clock strikes twelve!";
-            nightmare.dreamMessage = "The gears hum a lullaby.\nTime stands still in the moonlight.\nA portal home now waits where you started.";
-            var atmosphere = new Atmosphere
-            {
-                sky = Sky("Moon_Sky_Dream", new Color(0.05f, 0.04f, 0.2f), new Color(0.45f, 0.35f, 0.75f),
-                    new Color(0.2f, 0.15f, 0.4f), new Color(0.6f, 0.8f, 1f), 200f),
-                fogColor = new Color(0.3f, 0.25f, 0.5f),
-                fogDensity = 0.012f,
-                ambientSky = new Color(0.55f, 0.5f, 0.8f),
-                ambientEquator = new Color(0.5f, 0.45f, 0.65f),
-                ambientGround = new Color(0.25f, 0.22f, 0.35f),
-                sunColor = new Color(0.9f, 0.92f, 1f),
-                sunIntensity = 1.1f,
-            };
-            ApplyAtmosphere(atmosphere, ctx.sun);
-            ctx.vision.nightmare = NightmareLook(new Color(0.5f, 0.3f, 0.22f));
-
-            var countdown = nightmare.gameObject.AddComponent<DreamCountdown>();
-            countdown.seconds = 210f;
-
-
-            var towerPos = new Vector3(0f, 0f, 62f);
-            var keyPos = new Vector3(0f, 0f, 55f);
-            var sweeperSpots = new[] { new Vector3(0f, 0f, 14f), new Vector3(-12f, 0f, 26f), new Vector3(12f, 0f, 26f), new Vector3(0f, 0f, 38f) };
-            UseTerrain(world.scene, 2f, 78f, 10f, (Vector3.zero, 7f), (towerPos, 6f), (keyPos, 6f),
-                (sweeperSpots[0], 6.5f), (sweeperSpots[1], 6f), (sweeperSpots[2], 6f), (sweeperSpots[3], 6.5f));
-            Ground(root, dust, 230f);
-            Boundary(root, 80f, 40);
-            EdgeDressing(root, 82f, 50, rock, new[] { brass }, true, null, 2);
-            var occupied = new List<Vector3>();
-
-            // --- Craters and boulders, kept clear of the gear sweepers.
-            var craters = Group("Craters", root);
-            foreach (var p in Scatter(60, 6f, 76f, 7f, occupied, (Vector3.zero, 5f), (keyPos, 8f), (towerPos, 7f),
-                         (sweeperSpots[0], 6f), (sweeperSpots[1], 6f), (sweeperSpots[2], 6f), (sweeperSpots[3], 6f)))
-            {
-                float r = Random.Range(1.5f, 4f);
-                var crater = Group("Crater", craters.transform);
-                crater.transform.localPosition = p;
-                crater.transform.localRotation = AlongGround(p);
-                var floor = CreatePrimitive(PrimitiveType.Cylinder, "Floor", crater.transform, rock, false);
-                floor.transform.localPosition = new Vector3(0f, 0.01f, 0f);
-                floor.transform.localScale = new Vector3(r * 2f, 0.01f, r * 2f);
-                int stones = Mathf.RoundToInt(r * 4f);
-                for (int i = 0; i < stones; i++)
-                {
-                    var rot = Quaternion.Euler(0f, i * 360f / stones, 0f);
-                    var rim = CreatePrimitive(PrimitiveType.Sphere, "Rim", crater.transform, rock, false);
-                    rim.transform.localPosition = rot * new Vector3(0f, 0.05f, r);
-                    rim.transform.localRotation = rot;
-                    rim.transform.localScale = new Vector3(r * 0.9f, 0.3f, 0.6f);
-                }
-            }
-
-            var boulders = Group("Boulders", root);
-            foreach (var p in Scatter(70, 6f, 76f, 4f, occupied, (Vector3.zero, 5f), (keyPos, 7f), (towerPos, 6f),
-                         (sweeperSpots[0], 6f), (sweeperSpots[1], 6f), (sweeperSpots[2], 6f), (sweeperSpots[3], 6f)))
-            {
-                var boulder = CreatePrimitive(PrimitiveType.Sphere, "Boulder", boulders.transform, rock, true);
-                var s = new Vector3(Random.Range(0.8f, 2.2f), Random.Range(0.6f, 1.4f), Random.Range(0.8f, 2.2f));
-                boulder.transform.localPosition = p + Vector3.up * s.y * 0.3f;
-                boulder.transform.localRotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-                boulder.transform.localScale = s;
-                UseMeshCollider(boulder);
-            }
-
-            // --- The clock tower, its face turned toward the spawn (-Z).
-            var tower = Group("Clock Tower", root);
-            tower.transform.localPosition = towerPos;
-            var tick = tower.AddComponent<DreamSoundEmitter>();
-            tick.sound = DreamSound.ClockTick;
-            tick.volume = 0.6f;
-            tick.maxDistance = 45f;
-            Box("Base", tower.transform, stone, new Vector3(0f, 4f, 0f), new Vector3(6f, 8f, 6f));
-            Box("Upper", tower.transform, stone, new Vector3(0f, 10f, 0f), new Vector3(4.5f, 4f, 4.5f));
-            Box("Door", tower.transform, iron, new Vector3(0f, 1.5f, -3.02f), new Vector3(1.8f, 3f, 0.06f), false);
-            var roof = Box("Roof", tower.transform, brass, new Vector3(0f, 12.8f, 0f), new Vector3(3.4f, 3.4f, 3.4f), false);
-            roof.transform.localRotation = Quaternion.Euler(45f, 0f, 45f);
-            var spire = CreatePrimitive(PrimitiveType.Cylinder, "Spire", tower.transform, brass, false);
-            spire.transform.localPosition = new Vector3(0f, 15.5f, 0f);
-            spire.transform.localScale = new Vector3(0.12f, 1.2f, 0.12f);
-
-            var face = CreatePrimitive(PrimitiveType.Cylinder, "Clock Face", tower.transform, clockFace, false);
-            face.transform.localPosition = new Vector3(0f, 10f, -2.3f);
-            face.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            face.transform.localScale = new Vector3(3.6f, 0.05f, 3.6f);
-            var faceRim = MeshObject("Face Rim", tower.transform, RingMesh(), brass);
-            faceRim.transform.localPosition = new Vector3(0f, 10f, -2.33f);
-            faceRim.transform.localScale = new Vector3(1.8f, 1.8f, 8f);
-            for (int i = 0; i < 12; i++)
-            {
-                float a = i * 30f;
-                var mark = Box("Hour Mark", tower.transform, iron,
-                    new Vector3(Mathf.Sin(a * Mathf.Deg2Rad) * 1.5f, 10f + Mathf.Cos(a * Mathf.Deg2Rad) * 1.5f, -2.38f), new Vector3(0.1f, 0.28f, 0.04f), false);
-                mark.transform.localRotation = Quaternion.Euler(0f, 0f, -a);
-            }
-            foreach (var (length, speed) in new[] { (0.9f, -0.5f), (1.35f, -6f) })
-            {
-                var pivot = Group("Clock Hand", tower.transform);
-                pivot.transform.localPosition = new Vector3(0f, 10f, -2.42f);
-                pivot.transform.localRotation = Quaternion.Euler(0f, 0f, Random.Range(0f, 360f));
-                Box("Hand", pivot.transform, iron, new Vector3(0f, length * 0.5f, 0f), new Vector3(0.14f, length, 0.03f), false);
-                var turn = pivot.AddComponent<DreamFloat>();
-                turn.bobHeight = 0f;
-                turn.spin = new Vector3(0f, 0f, speed);
-            }
-
-            // --- The Moon Key on a gear pedestal, guarded by a sweeper that circles it.
-            var pedestal = CreateGear(root, "Key Pedestal", 0.6f, 1f, 12, brass);
-            pedestal.transform.localPosition = keyPos + Vector3.up * 0.5f;
-            var token = CreateToken(root, "Moon Key", keyPos + Vector3.up * 1.5f, new Color(0.7f, 0.85f, 1f),
-                "The Moon Key is ringing softly nearby...\nTime your dash past the gears and grab it!", out var key);
-            token.hintDistance = 8f;
-            var keyRing = MeshObject("Bow", key, SaveMesh(CreateEllipticTorus(0.08f, 0.08f, 0.02f, 32, 8), "KeyRing"), keyMat);
-            keyRing.transform.localPosition = new Vector3(0f, 0.08f, 0f);
-            Box("Shaft", key, keyMat, new Vector3(0f, -0.14f, 0f), new Vector3(0.03f, 0.3f, 0.03f), false);
-            Box("Tooth", key, keyMat, new Vector3(0.04f, -0.27f, 0f), new Vector3(0.06f, 0.03f, 0.03f), false);
-            Box("Tooth", key, keyMat, new Vector3(0.035f, -0.21f, 0f), new Vector3(0.05f, 0.03f, 0.03f), false);
-            Particles(root, "Key Glimmer", keyPos + Vector3.up * 1.5f, new Vector3(1f, 1f, 1f), 12f,
-                new Color(0.7f, 0.85f, 1f), Color.white, 0.03f, 0.07f, ctx.sparkle);
-
-            const string gearMessage = "The gears swept you away...\nYou wake up where you started.";
-            var sweepers = Group("Gear Sweepers", root);
-            Sweeper(sweepers.transform, keyPos, 4.5f, 30f, 2, 1.3f, iron, hotIron, gearMessage);
-            Sweeper(sweepers.transform, sweeperSpots[0], 5f, 22f, 2, 0f, iron, hotIron, gearMessage);
-            Sweeper(sweepers.transform, sweeperSpots[1], 4.5f, -26f, 3, 0f, iron, hotIron, gearMessage);
-            Sweeper(sweepers.transform, sweeperSpots[2], 4.5f, 26f, 3, 0f, iron, hotIron, gearMessage);
-            Sweeper(sweepers.transform, sweeperSpots[3], 5f, -20f, 2, 0f, iron, hotIron, gearMessage);
-            foreach (Transform sweeper in sweepers.transform)
-            {
-                var escalation = sweeper.gameObject.AddComponent<DreamEscalation>();
-                escalation.goal = keyPos;
-                escalation.followCountdown = true;
-                var grind = sweeper.gameObject.AddComponent<DreamSoundEmitter>();
-                grind.sound = DreamSound.GearGrind;
-                grind.volume = 0.5f;
-                grind.maxDistance = 12f;
-            }
-
-            // --- Great gears turning in the sky.
-            var skyGears = Group("Sky Gears", root);
-            for (int i = 0; i < 16; i++)
-            {
-                float a = (i * 22.5f + Random.Range(-10f, 10f)) * Mathf.Deg2Rad;
-                float dist = Random.Range(40f, 72f);
-                var flat = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
-                var holder = Group("Sky Gear", skyGears.transform);
-                holder.transform.localPosition = flat * dist + Vector3.up * Random.Range(10f, 24f);
-                holder.transform.localRotation = Quaternion.LookRotation(-flat, Vector3.up) * Quaternion.Euler(90f, 0f, 0f);
-                var gear = CreateGear(holder.transform, "Gear", Random.Range(2f, 4.5f), 0.5f, Random.Range(12, 20), brass);
-                var turn = gear.AddComponent<DreamFloat>();
-                turn.bobHeight = 0f;
-                turn.spin = new Vector3(0f, (i % 2 == 0 ? 1f : -1f) * Random.Range(8f, 15f), 0f);
-            }
-
-            var eyes = WatchingEyes(root, eyesMat, 20, 15f, 70f);
-
-            // --- Lanterns, stardust and a blue planet rising.
-            var lanterns = Group("Moon Lanterns", root);
-            foreach (var p in Scatter(30, 4f, 58f, 6f, null, (keyPos, 3f)))
-            {
-                var lantern = CreatePrimitive(PrimitiveType.Sphere, "Lantern", lanterns.transform, lanternMat, false);
-                lantern.transform.localPosition = p + Vector3.up * Random.Range(2.5f, 4.5f);
-                lantern.transform.localScale = Vector3.one * 0.35f;
-                lantern.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-                PointLight(lantern.transform, "Light", Vector3.zero, new Color(1f, 0.85f, 0.6f), 6f, 1f);
-                var bob = lantern.AddComponent<DreamFloat>();
-                bob.bobHeight = 0.25f;
-                bob.bobSpeed = 0.15f;
-            }
-            var stardust = Particles(root, "Stardust", new Vector3(0f, 3f, 0f), new Vector3(90f, 6f, 90f), 80f,
-                new Color(0.8f, 0.9f, 1f), new Color(1f, 0.9f, 0.6f), 0.03f, 0.06f, ctx.sparkle);
-            var planet = CreatePrimitive(PrimitiveType.Sphere, "Blue Planet", root, planetMat, false);
-            planet.transform.localPosition = new Vector3(-50f, 40f, 85f);
-            planet.transform.localScale = Vector3.one * 26f;
-            planet.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-            var home = CreateWayHome(root, new Vector3(0f, 0f, 4f), 180f, stone);
-
-            PlaceArtifacts(ctx, new Color(1f, 0.45f, 0.05f), new Color(0.75f, 0.85f, 1f), GroundRoute(new Vector3(0f, 0f, 7f), keyPos, 7f),
-                Scatter(12, 8f, 72f, 4f, occupied, (Vector3.zero, 6f), (keyPos, 7f), (towerPos, 7f),
-                    (sweeperSpots[0], 6f), (sweeperSpots[1], 6f), (sweeperSpots[2], 6f), (sweeperSpots[3], 6f)));
-            nightmare.nightmareOnly = new[] { sweepers, eyes };
-            nightmare.dreamOnly = new[] { home };
-            foreach (var go in nightmare.dreamOnly)
-                go.SetActive(false);
-        }
-
-        // =====================================================================
-        // 5. Crystal Caverns — light the dim crystals in the dark, find the Heart Crystal
-        // =====================================================================
-
-        static void BuildCrystalCaverns(World world)
-        {
-            var ctx = SetupWorld(world, Vector3.zero, 0f, true);
-            var root = ctx.root;
-
-            var floorMat = Lit("Cave_Floor", new Color(0.35f, 0.3f, 0.45f), 0.3f, new Color(0.03f, 0.02f, 0.06f));
-            var rock = Lit("Cave_Rock", new Color(0.42f, 0.36f, 0.55f), 0.25f, new Color(0.04f, 0.03f, 0.07f));
-            var dimCrystal = Lit("Cave_Crystal_Dim", new Color(0.2f, 0.25f, 0.35f), 0.9f, new Color(0.08f, 0.12f, 0.2f));
-            var litCrystal = Lit("Cave_Crystal_Lit", new Color(0.7f, 1f, 1f), 0.95f, new Color(1.2f, 2.2f, 2.4f));
-            var heartMat = Lit("Cave_HeartCrystal", new Color(1f, 0.5f, 0.75f), 0.95f, new Color(2f, 0.6f, 1.4f));
-            var shadowMat = Lit("Cave_Shadow", new Color(0.01f, 0f, 0.02f), 0.95f, Color.black);
-            var shadowRim = Lit("Cave_ShadowRim", new Color(0.3f, 0.05f, 0.5f), 0.5f, new Color(0.6f, 0.1f, 1f));
-            var eyesMat = Lit("Cave_Eyes", new Color(0.8f, 0.3f, 1f), 0.5f, new Color(1.6f, 0.4f, 2.2f));
-            var capMat = Lit("Cave_MushroomCap", new Color(0.4f, 0.9f, 1f), 0.6f, new Color(0.4f, 1.2f, 1.4f));
-            var stemMat = Lit("Cave_MushroomStem", new Color(0.9f, 0.9f, 0.85f), 0.3f, new Color(0.1f, 0.1f, 0.1f));
-            var gemMats = new[]
-            {
-                Lit("Cave_Gem_Rose", new Color(1f, 0.5f, 0.75f), 0.95f, new Color(1f, 0.25f, 0.6f)),
-                Lit("Cave_Gem_Sky", new Color(0.5f, 0.8f, 1f), 0.95f, new Color(0.3f, 0.7f, 1.2f)),
-                Lit("Cave_Gem_Lime", new Color(0.7f, 1f, 0.5f), 0.95f, new Color(0.5f, 1.1f, 0.3f)),
-                Lit("Cave_Gem_Amber", new Color(1f, 0.8f, 0.4f), 0.95f, new Color(1.2f, 0.8f, 0.2f)),
-                Lit("Cave_Gem_Violet", new Color(0.75f, 0.55f, 1f), 0.95f, new Color(0.8f, 0.4f, 1.4f)),
-            };
-            var gemLights = new[]
-            {
-                new Color(1f, 0.5f, 0.8f), new Color(0.5f, 0.8f, 1f), new Color(0.7f, 1f, 0.5f), new Color(1f, 0.8f, 0.4f), new Color(0.8f, 0.6f, 1f),
-            };
-
-            var nightmare = ctx.nightmare;
-            nightmare.tokenName = "Heart Crystal";
-            nightmare.introMessage = "The Crystal Caverns have gone dark...\nBeware the pools of living shadow!\nLight the dim crystals to find the Heart Crystal.";
-            nightmare.dreamMessage = "Light pours from every crystal.\nThe caverns sing!\nA portal home now waits where you started.";
-            var atmosphere = new Atmosphere
-            {
-                sky = Sky("Cave_Sky_Dream", new Color(0.05f, 0.1f, 0.2f), new Color(0.3f, 0.2f, 0.5f),
-                    new Color(0.1f, 0.05f, 0.2f), new Color(0.4f, 0.9f, 1f), 60f),
-                fogColor = new Color(0.2f, 0.18f, 0.35f),
-                fogDensity = 0.025f,
-                ambientSky = new Color(0.4f, 0.45f, 0.65f),
-                ambientEquator = new Color(0.4f, 0.35f, 0.55f),
-                ambientGround = new Color(0.2f, 0.18f, 0.3f),
-                sunColor = new Color(0.7f, 0.85f, 1f),
-                sunIntensity = 0.6f,
-            };
-            ApplyAtmosphere(atmosphere, ctx.sun);
-            ctx.vision.nightmare = NightmareLook(new Color(0.2f, 0.18f, 0.32f));
-
-
-            var heartPos = new Vector3(0f, 0f, 30f);
-            var homePos = new Vector3(0f, 0f, 4f);
-            UseTerrain(world.scene, 2f, 68f, 6f, (Vector3.zero, 7f), (heartPos, 3f));
-            Ground(root, floorMat, 230f);
-            Boundary(root, 70f, 40);
-            var occupied = new List<Vector3>();
-            var beaconPoints = Scatter(5, 18f, 62f, 20f, occupied, (Vector3.zero, 6f), (heartPos, 6f));
-
-            // --- The cave itself: a ceiling, walls of huge boulders, stalactites and stalagmites.
-            var cave = Group("Cave", root);
-            var ceiling = CreatePrimitive(PrimitiveType.Plane, "Ceiling", cave.transform, rock, false);
-            ceiling.transform.localPosition = new Vector3(0f, 14f, 0f);
-            ceiling.transform.localRotation = Quaternion.Euler(180f, 0f, 0f);
-            ceiling.transform.localScale = new Vector3(18f, 1f, 18f);
-            ceiling.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-            for (int i = 0; i < 64; i++)
-            {
-                var rot = Quaternion.Euler(0f, i * 5.625f + Random.Range(-2f, 2f), 0f);
-                var s = new Vector3(Random.Range(6f, 10f), Random.Range(14f, 20f), Random.Range(6f, 10f));
-                var wall = CreatePrimitive(PrimitiveType.Sphere, "Cave Wall", cave.transform, rock, false);
-                wall.transform.localPosition = rot * new Vector3(0f, s.y * 0.35f, Random.Range(75f, 79f));
-                wall.transform.localRotation = rot;
-                wall.transform.localScale = s;
-            }
-            for (int i = 0; i < 180; i++)
-            {
-                float a = Random.Range(0f, Mathf.PI * 2f);
-                float r = Mathf.Sqrt(Random.Range(4f, 4500f));
-                float h = Random.Range(2f, 5f);
-                float w = Random.Range(0.5f, 1.2f);
-                var stalactite = CreatePrimitive(PrimitiveType.Sphere, "Stalactite", cave.transform, rock, false);
-                stalactite.transform.localPosition = new Vector3(Mathf.Cos(a) * r, 14f, Mathf.Sin(a) * r);
-                stalactite.transform.localScale = new Vector3(w, h, w);
-            }
-            foreach (var p in Scatter(120, 5f, 66f, 3f, occupied, (Vector3.zero, 5f), (heartPos, 4f), (homePos, 2.5f)))
-            {
-                float h = Random.Range(1.5f, 4f);
-                float w = Random.Range(0.6f, 1.4f);
-                var stalagmite = CreatePrimitive(PrimitiveType.Sphere, "Stalagmite", cave.transform, rock, true);
-                stalagmite.transform.localPosition = p;
-                stalagmite.transform.localScale = new Vector3(w, h, w);
-            }
-
-            // --- The dim crystals: walk up to one to set it blazing.
-            var crystalMesh = SaveMesh(CreateCrystal(0.35f, 1.6f), "CaveCrystal");
-            EdgeDressing(root, 72f, 50, rock, gemMats, false, crystalMesh, 2);
-            var beacons = Group("Dim Crystals", root);
-            foreach (var p in beaconPoints)
-            {
-                var beacon = Group("Dim Crystal", beacons.transform);
-                beacon.transform.localPosition = p;
-                var collectible = beacon.AddComponent<DreamCollectible>();
-                collectible.touchDistance = 1.8f;
-                var unlit = Group("Unlit", beacon.transform);
-                var lit = Group("Lit", beacon.transform);
-                for (int c = 0; c < 4; c++)
-                {
-                    var rot = Quaternion.Euler(c == 0 ? 0f : Random.Range(20f, 40f), c * 120f + Random.Range(-20f, 20f), 0f);
-                    float s = c == 0 ? 1.2f : Random.Range(0.6f, 0.9f);
-                    foreach (var (group, mat) in new[] { (unlit, dimCrystal), (lit, litCrystal) })
-                    {
-                        var shard = MeshObject("Crystal", group.transform, crystalMesh, mat);
-                        shard.transform.localPosition = rot * Vector3.up * 0.8f * s;
-                        shard.transform.localRotation = rot;
-                        shard.transform.localScale = Vector3.one * s;
-                    }
-                }
-                PointLight(unlit.transform, "Faint Glow", Vector3.up * 1.2f, new Color(0.3f, 0.5f, 0.8f), 4f, 0.6f);
-                PointLight(lit.transform, "Light", Vector3.up * 1.6f, new Color(0.5f, 0.95f, 1f), 16f, 2.2f);
-                Particles(lit.transform, "Glimmer", Vector3.up * 1.2f, new Vector3(1.5f, 2f, 1.5f), 10f,
-                    new Color(0.5f, 1f, 1f), Color.white, 0.03f, 0.07f, ctx.sparkle);
-                collectible.hideOnCollect = unlit;
-                collectible.showOnCollect = lit;
-                lit.SetActive(false);
-            }
-
-            // --- The Heart Crystal rises on its pillar once every crystal is lit.
-            var pillar = CreatePrimitive(PrimitiveType.Cylinder, "Heart Pillar", root, rock, true);
-            pillar.transform.localPosition = heartPos + Vector3.up * 0.5f;
-            pillar.transform.localScale = new Vector3(1f, 0.5f, 1f);
-            UseMeshCollider(pillar);
-            var token = CreateToken(root, "Heart Crystal", heartPos + Vector3.up * 1.5f, new Color(1f, 0.5f, 0.8f),
-                "The Heart Crystal is beating with light...\nReach out and take it!", out var heart);
-            token.hintDistance = 7f;
-            var heartGem = MeshObject("Crystal", heart, SaveMesh(CreateCrystal(0.14f, 0.4f), "HeartCrystal"), heartMat);
-            heartGem.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-            Particles(token.transform.parent, "Heart Aura", Vector3.zero, new Vector3(1.2f, 1f, 1.2f), 12f,
-                new Color(1f, 0.5f, 0.8f), new Color(0.8f, 0.6f, 1f), 0.03f, 0.08f, ctx.sparkle);
-            CollectionGoal(ctx, token, "CRYSTALS LIT", beaconPoints.Count, "The crystal blazes with light!",
-                "All the crystals shine together...\nThe Heart Crystal has appeared on the pillar in the middle of the cave!");
-
-            // --- Nightmare: pools of living shadow and watching eyes.
-            const string shadowMessage = "The shadows swallowed you...\nYou wake up where you started.";
-            var ring = RingMesh();
-            var shadows = Group("Shadow Pools", root);
-            foreach (var p in Scatter(32, 6f, 64f, 4f, occupied, (Vector3.zero, 5f), (heartPos, 4f)))
-            {
-                float r = Random.Range(1.2f, 2.2f);
-                var pool = Hazard(shadows.transform, "Shadow Pool", p, r, shadowMessage).gameObject;
-                var creep = pool.AddComponent<DreamCreep>();
-                creep.maxGrowth = 1.4f;
-                creep.growTime = 240f;
-                creep.chaseSpeed = 0.6f;
-                creep.chaseRange = 10f;
-                pool.transform.localRotation = AlongGround(p);
-                var disc = CreatePrimitive(PrimitiveType.Cylinder, "Shadow", pool.transform, shadowMat, false);
-                disc.transform.localPosition = new Vector3(0f, 0.02f, 0f);
-                disc.transform.localScale = new Vector3(r * 2f, 0.02f, r * 2f);
-                var rim = MeshObject("Rim", pool.transform, ring, shadowRim);
-                rim.transform.localPosition = new Vector3(0f, 0.03f, 0f);
-                rim.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-                rim.transform.localScale = new Vector3(r, r, 3f);
-                Particles(pool.transform, "Wisps", Vector3.up * 0.4f, new Vector3(r * 1.5f, 0.6f, r * 1.5f), 6f,
-                    new Color(0.05f, 0f, 0.1f, 0.7f), new Color(0.15f, 0.02f, 0.25f, 0.5f), 0.3f, 0.7f, ctx.mist);
-            }
-            var eyes = WatchingEyes(root, eyesMat, 24, 8f, 64f);
-
-            // --- A garden of glowing gems, mushrooms and glowworms.
-            var garden = Group("Crystal Garden", root);
-            int lights = 0;
-            foreach (var p in Scatter(170, 3f, 66f, 2f, null, (Vector3.zero, 3f), (heartPos, 3f), (homePos, 2f)))
-            {
-                var cluster = Group("Gem Cluster", garden.transform);
-                cluster.transform.localPosition = p;
-                int kind = Random.Range(0, gemMats.Length);
-                int shards = Random.Range(2, 5);
-                for (int c = 0; c < shards; c++)
-                {
-                    var rot = Quaternion.Euler(Random.Range(0f, 35f), Random.Range(0f, 360f), 0f);
-                    float s = Random.Range(0.3f, 0.7f);
-                    var shard = MeshObject("Gem", cluster.transform, crystalMesh, gemMats[kind]);
-                    shard.transform.localPosition = rot * Vector3.up * 0.8f * s;
-                    shard.transform.localRotation = rot;
-                    shard.transform.localScale = Vector3.one * s;
-                    shard.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-                }
-                if (lights++ % 4 == 0)
-                    PointLight(cluster.transform, "Glow", Vector3.up * 0.6f, gemLights[kind], 6f, 1.2f);
-            }
-            foreach (var p in Scatter(120, 3f, 66f, 1.5f, null, (Vector3.zero, 3f), (heartPos, 3f), (homePos, 2f)))
-            {
-                var mushroom = Group("Glowshroom", garden.transform);
-                mushroom.transform.localPosition = p;
-                float h = Random.Range(0.3f, 0.9f);
-                var stem = CreatePrimitive(PrimitiveType.Cylinder, "Stem", mushroom.transform, stemMat, false);
-                stem.transform.localPosition = Vector3.up * h * 0.5f;
-                stem.transform.localScale = new Vector3(0.08f, h * 0.5f, 0.08f);
-                var cap = CreatePrimitive(PrimitiveType.Sphere, "Cap", mushroom.transform, capMat, false);
-                cap.transform.localPosition = Vector3.up * h;
-                cap.transform.localScale = new Vector3(0.4f, 0.18f, 0.4f) * Random.Range(0.8f, 1.4f);
-            }
-            var glowworms = Particles(root, "Glowworms", new Vector3(0f, 12.5f, 0f), new Vector3(130f, 2f, 130f), 120f,
-                new Color(0.4f, 1f, 0.9f), new Color(0.6f, 0.9f, 1f), 0.04f, 0.08f, ctx.sparkle);
-            var home = CreateWayHome(root, homePos, 180f, rock);
-
-            PlaceArtifacts(ctx, new Color(0.7f, 0.2f, 1f), new Color(0.5f, 1f, 0.95f), GroundRoute(new Vector3(0f, 0f, 7f), heartPos, 6f),
-                Scatter(12, 8f, 64f, 3f, occupied, (Vector3.zero, 6f), (heartPos, 5f)));
-            nightmare.nightmareOnly = new[] { shadows, eyes };
-            nightmare.dreamOnly = new[] { home };
-            foreach (var go in nightmare.dreamOnly)
-                go.SetActive(false);
-        }
-
-        // =====================================================================
-        // 6. Upside-Down City — cross the rooftops over the void, find the Compass of Up
+        // 3. Upside-Down City — cross the rooftops over the void, find the Compass of Up
         // =====================================================================
 
         static void BuildUpsideDownCity(World world)
