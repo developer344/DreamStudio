@@ -20,6 +20,8 @@ namespace DreamStudio
 
         [Tooltip("Half-size of the elliptical opening in local units (x = half width, y = half height).")]
         public Vector2 halfSize = new Vector2(1.2f, 1.6f);
+        [Tooltip("The surface's shape: 0 an ellipse, 1 a rectangle, 2 a triangle pointing up (matches its material).")]
+        public int shape;
 
         [Tooltip("How close (meters) the head must get to the portal plane to count as entering.")]
         public float entryDepth = 0.25f;
@@ -106,7 +108,7 @@ namespace DreamStudio
             float ex = local.x / halfSize.x;
             float ey = local.y / halfSize.y;
             bool open = transform.lossyScale.y > 0.9f;
-            bool inside = open && ex * ex + ey * ey < 1f && local.z < entryDepth && local.z > -entryDepth;
+            bool inside = open && InsideShape(ex, ey) && local.z < entryDepth && local.z > -entryDepth;
 
             if (inside && !m_Entered)
             {
@@ -116,6 +118,17 @@ namespace DreamStudio
             else if (!inside)
             {
                 m_Entered = false;
+            }
+        }
+
+        /// <summary>Whether a point (in half-size units from the centre) lies within the portal's shape.</summary>
+        bool InsideShape(float ex, float ey)
+        {
+            switch (shape)
+            {
+                case 1: return Mathf.Abs(ex) < 1f && Mathf.Abs(ey) < 1f;
+                case 2: return Mathf.Abs(ey) < 1f && Mathf.Abs(ex) < (1f - ey) * 0.5f;
+                default: return ex * ex + ey * ey < 1f;
             }
         }
 

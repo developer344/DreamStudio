@@ -65,8 +65,7 @@ namespace DreamStudio
 
                 float low = 1f - Mathf.Clamp01(ratio / warningThreshold);
                 DreamAudio.RequestHeartbeat(low);
-                float pulse = 0.8f + 0.2f * Mathf.Sin(Time.time * Mathf.Lerp(2f, 8f, low));
-                hud.SetTint(new Color(0.12f, 0.05f, 0f), low * 0.6f * pulse);
+                hud.SetTint(new Color(0.12f, 0.05f, 0f), low * 0.6f);
             }
 
             if (m_Remaining <= 0f)

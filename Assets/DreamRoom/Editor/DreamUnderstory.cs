@@ -227,7 +227,7 @@ namespace DreamStudio.Editor
                 if (c.InOpen(p, 0.5f) || c.PathDistance(p) < 1.3f || c.TreeDistance(p) < 0.7f)
                     return 0f;
                 return 0.5f * c.Shade(p) + 0.12f * (1f - c.Meadow(p));
-            }, p => Fern(c, c.At(p).Layer("Plants"), p, c.R(0.7f, 1.05f) * Mathf.Lerp(0.8f, 1.15f, c.Shade(p)), DreamTextures.Understory.Fern));
+            }, p => Fern(c, c.At(p).Layer("Ferns"), p, c.R(0.7f, 1.05f) * Mathf.Lerp(0.8f, 1.15f, c.Shade(p)), DreamTextures.Understory.Fern));
             Scatter(c, 1100, p => c.PathDistance(p) < 1f ? 0f : 0.6f * c.Shade(p) + 0.05f, p =>
                 Flat(c, c.At(p).Layer("Plants"), p, c.R(1f, 2.4f), c.R(0f, 360f), 0.012f + c.R(0f, 0.004f), DreamTextures.Understory.Moss, 3));
             Scatter(c, 1400, p => c.PathDistance(p) < 1f ? 0f : 0.2f + 0.45f * c.Shade(p), p =>
@@ -249,6 +249,7 @@ namespace DreamStudio.Editor
             var layers = new Dictionary<string, Material[]>
             {
                 ["Plants"] = new[] { plantsMat },
+                ["Ferns"] = new[] { plantsMat },
                 ["Mushrooms"] = new[] { capMat, stemMat },
             };
             if (settings.shrubLeaves != null)
@@ -268,6 +269,9 @@ namespace DreamStudio.Editor
             }
         }
 
+        /// <summary>Layers tall enough to cast a worthwhile shadow; low ground cover doesn't (too costly on Quest).</summary>
+        static readonly HashSet<string> ShadowCasters = new HashSet<string> { "Shrubs", "Ferns" };
+
         static void AddChunk(Transform parent, string name, Bits bits, string meshName, params Material[] mats)
         {
             if (bits.v.Count == 0)
@@ -275,7 +279,7 @@ namespace DreamStudio.Editor
             var go = MeshObject(name, parent, bits.ToMesh(meshName), mats[0]);
             var renderer = go.GetComponent<MeshRenderer>();
             renderer.sharedMaterials = mats;
-            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.shadowCastingMode = ShadowCasters.Contains(name) ? ShadowCastingMode.On : ShadowCastingMode.Off;
         }
 
         /// <summary>Tries <paramref name="attempts"/> random spots, keeping each with probability <paramref name="density"/>(spot).</summary>
@@ -345,7 +349,7 @@ namespace DreamStudio.Editor
         /// A fern: seven to ten fronds springing up and out from one crown, each arching over and drooping at
         /// the tip, made of a bent strip of card showing the frond.
         /// </summary>
-        static void Fern(Context c, Bits b, Vector3 p, float size, Rect uv)
+        internal static void Fern(Context c, Bits b, Vector3 p, float size, Rect uv)
         {
             int fronds = 7 + c.rng.Next(4);
             float yaw0 = c.R(0f, 360f);
@@ -385,7 +389,7 @@ namespace DreamStudio.Editor
         }
 
         /// <summary>A shrub: a low, rounded mass of leaf cards, shaded from its middle like a tree's crown.</summary>
-        static void Shrub(Context c, Bits b, Vector3 p, float height)
+        internal static void Shrub(Context c, Bits b, Vector3 p, float height)
         {
             var center = p + Vector3.up * height * 0.55f;
             var shadeCenter = center - Vector3.up * height * 0.3f;

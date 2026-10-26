@@ -50,9 +50,11 @@ namespace DreamStudio.Editor
         /// <summary>The worlds, in hub portal order (left, ahead, right). Scene files live in <see cref="WorldSceneDir"/>.</summary>
         public static readonly World[] Worlds =
         {
-            new World("Haunted Forest", "HauntedForest", new Color(0.65f, 1f, 0.7f), new Color(0.3f, 0.12f, 0.5f), 1000),
-            new World("Sunken Depths", "SunkenDepths", new Color(0.4f, 0.95f, 1f), new Color(0.1f, 0.2f, 0.75f), 1001),
-            new World("Upside-Down City", "UpsideDownCity", new Color(0.95f, 0.55f, 1f), new Color(0.2f, 0.85f, 0.7f), 1005),
+            // Portal colours from each nightmare: violet dusk for the haunted forest, a dark ocean glowing
+            // aqua at its edge for the depths, warm sunset amber and coral for the garden.
+            new World("Haunted Forest", "HauntedForest", new Color(0.92f, 0.82f, 1f), new Color(0.38f, 0.16f, 0.58f), 1000),
+            new World("Sunken Depths", "SunkenDepths", new Color(0.06f, 0.14f, 0.28f), new Color(0.25f, 0.7f, 1f), 1001),
+            new World("Glass Garden", "GlassGarden", new Color(1f, 0.88f, 0.7f), new Color(0.92f, 0.42f, 0.36f), 1006),
         };
 
         public static void EnsureFolders()
@@ -94,10 +96,45 @@ namespace DreamStudio.Editor
             return mat;
         }
 
-        /// <summary>URP Lit material. Emission is always enabled so nightmare/dream pairs can blend.</summary>
+        public const string StorybookShaderName = "DreamStudio/Storybook";
+        static bool s_WarnedNoStorybook;
+
+        /// <summary>The illustration shader, or null if it is missing or failed to compile (then materials use URP Lit).</summary>
+        public static Shader StorybookShader()
+        {
+            var shader = Shader.Find(StorybookShaderName);
+            if (shader == null || ShaderUtil.ShaderHasError(shader))
+            {
+                if (!s_WarnedNoStorybook)
+                    Debug.LogWarning($"[DreamStudio] '{StorybookShaderName}' is missing or has errors; using URP Lit instead.");
+                s_WarnedNoStorybook = true;
+                return null;
+            }
+            return shader;
+        }
+
+        /// <summary>
+        /// A surface material in the game's illustration style (the Storybook shader: flat fills pulled toward
+        /// the palette, two soft tones, print grain), or URP Lit if that shader is unavailable. Emission is
+        /// always enabled so nightmare/dream pairs can blend.
+        /// </summary>
         public static Material Lit(string name, Color baseColor, float smoothness, Color emission)
         {
-            var mat = LoadOrCreateMaterial(name, "Universal Render Pipeline/Lit");
+            bool storybook = StorybookShader() != null;
+            var mat = LoadOrCreateMaterial(name, storybook ? StorybookShaderName : "Universal Render Pipeline/Lit");
+            if (storybook)
+            {
+                mat.SetTexture("_BaseMap", null); // a plain fill unless a surface or a cut-out texture is assigned below
+                mat.SetColor("_ShadeColor", new Color(0.62f, 0.6f, 0.8f));
+                mat.SetFloat("_ShadeEdge", 0.35f);
+                mat.SetFloat("_ShadeSoftness", 0.1f);
+                mat.SetFloat("_PaletteSnap", 0.75f);
+                mat.SetFloat("_Lift", 0.25f);
+                mat.SetFloat("_Grain", 0.06f);
+                mat.SetFloat("_Detail", 0.3f);
+                mat.SetFloat("_Triplanar", 0f);
+                mat.DisableKeyword("_TRIPLANAR");
+            }
             mat.SetColor("_BaseColor", baseColor);
             mat.SetFloat("_Smoothness", smoothness);
             mat.SetFloat("_Metallic", 0f);
@@ -191,9 +228,9 @@ namespace DreamStudio.Editor
             foreach (var asset in assets)
             {
                 var so = new SerializedObject(asset);
-                SetFloat(so, "m_ShadowDistance", 45f);
+                SetFloat(so, "m_ShadowDistance", 60f);
                 SetInt(so, "m_ShadowCascadeCount", 2);
-                SetFloat(so, "m_Cascade2Split", 0.25f);
+                SetFloat(so, "m_Cascade2Split", 0.2f);
                 SetInt(so, "m_MainLightShadowmapResolution", 2048);
                 SetFloat(so, "m_ShadowDepthBias", 1f);
                 SetFloat(so, "m_ShadowNormalBias", 1f);
@@ -249,6 +286,8 @@ namespace DreamStudio.Editor
                 if (r.shadowCastingMode == ShadowCastingMode.Off || !r.TryGetComponent<MeshFilter>(out var filter) || filter.sharedMesh == null)
                     continue;
                 if (r.name == "Fallen Log") // long things bring their own long shadow
+                    continue;
+                if (r.name == "Room Wall" || r.name == "Room Door" || r.name == "Room Floor") // the closing room moves and falls open
                     continue;
                 // Mesh bounds work for inactive objects too, unlike Renderer.bounds.
                 var b = TransformBounds(filter.sharedMesh.bounds, r.transform.localToWorldMatrix);
@@ -408,19 +447,23 @@ namespace DreamStudio.Editor
         }
 
         /// <summary>
-        /// A swirling oval portal facing its local +Z. The portal's origin is the center of the oval.
+        /// A swirling portal facing its local +Z, with no frame of its own (its gate's stones frame it). The
+        /// origin is the centre of the surface, which is <paramref name="halfSize"/> across (the default oval if
+        /// not given) in the given <paramref name="shape"/>: 0 an ellipse, 1 a rectangle, 2 a triangle.
         /// </summary>
         public static DreamPortal CreatePortal(Transform parent, string label, string sceneName, string materialKey,
-            Color inner, Color outer, Vector3 labelLocalPos)
+            Color inner, Color outer, Vector3 labelLocalPos, Vector2 halfSize = default, int shape = 0)
         {
+            if (halfSize == default)
+                halfSize = new Vector2(PortalHalfWidth, PortalHalfHeight);
             var portal = new GameObject($"Portal - {label}");
             portal.transform.SetParent(parent, false);
 
-            var surface = CreatePrimitive(PrimitiveType.Quad, "Surface", portal.transform, PortalSurface(materialKey, inner, outer), false);
-            surface.transform.localScale = new Vector3(PortalHalfWidth * 2f, PortalHalfHeight * 2f, 1f);
+            var surfaceMat = PortalSurface(materialKey, inner, outer);
+            surfaceMat.SetFloat("_Shape", shape);
+            var surface = CreatePrimitive(PrimitiveType.Quad, "Surface", portal.transform, surfaceMat, false);
+            surface.transform.localScale = new Vector3(halfSize.x * 2f, halfSize.y * 2f, 1f);
             surface.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-
-            MeshObject("Frame", portal.transform, PortalRingMesh(), PortalRing(materialKey, inner, outer));
 
             var light = PointLight(portal.transform, "Portal Light", new Vector3(0f, 0f, 0.8f), Color.Lerp(inner, outer, 0.5f), 4.5f, 1.5f);
 
@@ -428,7 +471,7 @@ namespace DreamStudio.Editor
             // when the portal has no destination yet.
             var barrier = portal.AddComponent<BoxCollider>();
             barrier.center = new Vector3(0f, 0f, -0.45f);
-            barrier.size = new Vector3(PortalHalfWidth * 2f + 0.4f, PortalHalfHeight * 2f + 0.5f, 0.1f);
+            barrier.size = new Vector3(halfSize.x * 2f + 0.4f, halfSize.y * 2f + 0.5f, 0.1f);
 
             var labelGo = new GameObject("Label");
             labelGo.transform.SetParent(portal.transform, false);
@@ -439,12 +482,13 @@ namespace DreamStudio.Editor
             text.fontSize = 3.2f;
             text.alignment = TextAlignmentOptions.Center;
             text.color = Color.Lerp(inner, Color.white, 0.5f);
-            text.rectTransform.sizeDelta = new Vector2(PortalHalfWidth * 2f + 1.4f, 0.7f);
+            text.rectTransform.sizeDelta = new Vector2(Mathf.Max(halfSize.x * 2f + 1.4f, 3.8f), 0.7f);
 
             var dreamPortal = portal.AddComponent<DreamPortal>();
             dreamPortal.worldName = label;
             dreamPortal.sceneName = sceneName;
-            dreamPortal.halfSize = new Vector2(PortalHalfWidth, PortalHalfHeight);
+            dreamPortal.halfSize = halfSize;
+            dreamPortal.shape = shape;
             dreamPortal.surfaceRenderer = surface.GetComponent<Renderer>();
             dreamPortal.portalLight = light;
             return dreamPortal;

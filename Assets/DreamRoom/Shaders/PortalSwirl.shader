@@ -1,4 +1,5 @@
-// Swirling, glowing portal surface. Draw on a quad; the UVs are masked to an ellipse.
+// Swirling, glowing portal surface. Draw on a quad; the UVs are masked to the portal's shape (_Shape):
+// 0 an ellipse, 1 a rectangle, 2 a triangle pointing up. The edge fades softly so the gate's stones frame it.
 Shader "DreamStudio/PortalSwirl"
 {
     Properties
@@ -9,6 +10,7 @@ Shader "DreamStudio/PortalSwirl"
         _SwirlSpeed ("Swirl Speed", Float) = 0.6
         _SwirlTightness ("Swirl Tightness", Float) = 6
         _Alpha ("Alpha", Range(0, 1)) = 0.9
+        _Shape ("Shape (0 ellipse, 1 rectangle, 2 triangle)", Float) = 0
     }
 
     SubShader
@@ -33,6 +35,7 @@ Shader "DreamStudio/PortalSwirl"
                 float _SwirlSpeed;
                 float _SwirlTightness;
                 half _Alpha;
+                float _Shape;
             CBUFFER_END
 
             struct Attributes
@@ -77,7 +80,19 @@ Shader "DreamStudio/PortalSwirl"
             {
                 float2 p = input.uv * 2.0 - 1.0;
                 float r = length(p);
-                if (r > 1.0) discard;
+                // How far toward the shape's edge this point is (1 = on the edge).
+                float edgeMeasure = r;
+                if (_Shape > 1.5)
+                {
+                    float halfWidth = max((1.0 - p.y) * 0.5, 0.001);
+                    edgeMeasure = max(abs(p.x) / halfWidth, abs(p.y));
+                }
+                else if (_Shape > 0.5)
+                {
+                    edgeMeasure = max(abs(p.x), abs(p.y));
+                }
+                if (edgeMeasure > 1.0) discard;
+                r = min(r, 1.0);
 
                 float t = _Time.y * _SwirlSpeed;
                 float angle = atan2(p.y, p.x);
@@ -94,7 +109,7 @@ Shader "DreamStudio/PortalSwirl"
                 col += step(0.985, noise(swirlUV * 9.0 + t * 2.0)) * 1.5;
                 col *= _Intensity * (0.75 + bands * 0.5);
 
-                half edge = 1.0 - smoothstep(0.85, 1.0, r);
+                half edge = 1.0 - smoothstep(0.85, 1.0, edgeMeasure);
                 return half4(col, _Alpha * edge);
             }
             ENDHLSL

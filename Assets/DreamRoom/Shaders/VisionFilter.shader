@@ -10,7 +10,6 @@ Shader "DreamStudio/VisionFilter"
         _Glow ("Edge Glow (additive)", Color) = (0, 0, 0, 0)
         _VignetteStart ("Vignette Start", Range(0, 2)) = 0.05
         _VignetteEnd ("Vignette End", Range(0, 2)) = 0.45
-        _Pulse ("Pulse", Range(0, 1)) = 0
     }
 
     SubShader
@@ -29,7 +28,6 @@ Shader "DreamStudio/VisionFilter"
             half4 _Glow;
             half _VignetteStart;
             half _VignetteEnd;
-            half _Pulse;
         CBUFFER_END
 
         struct Attributes
@@ -60,8 +58,7 @@ Shader "DreamStudio/VisionFilter"
         half Vignette(float3 directionOS)
         {
             half offAxis = 1.0 - normalize(directionOS).z;
-            half breathe = 1.0 + _Pulse * 0.25 * sin(_Time.y * 1.7);
-            return smoothstep(_VignetteStart, _VignetteEnd, offAxis * breathe);
+            return smoothstep(_VignetteStart, _VignetteEnd, offAxis);
         }
         ENDHLSL
 

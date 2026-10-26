@@ -25,11 +25,11 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _StarDensity: 40
+    - _StarDensity: 20
     m_Colors:
-    - _BottomColor: {r: 0.6, g: 0.5, b: 0.9, a: 1}
-    - _HorizonColor: {r: 1, g: 0.7, b: 0.6, a: 1}
-    - _NebulaColor: {r: 1, g: 0.8, b: 0.9, a: 1}
-    - _TopColor: {r: 0.35, g: 0.55, b: 0.95, a: 1}
+    - _BottomColor: {r: 0.9, g: 0.62, b: 0.56, a: 1}
+    - _HorizonColor: {r: 0.97, g: 0.7, b: 0.56, a: 1}
+    - _NebulaColor: {r: 1, g: 0.92, b: 0.86, a: 1}
+    - _TopColor: {r: 0.95, g: 0.8, b: 0.74, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

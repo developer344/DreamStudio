@@ -121,8 +121,8 @@ namespace DreamStudio.Editor
                 var sway = holdfast.gameObject.AddComponent<DreamSway>();
                 sway.angle = c.R(4f, 8f);
                 sway.speed = c.R(0.07f, 0.14f);
-                var strand = MeshObject("Strand", holdfast, kelpMeshes[c.rng.Next(kelpMeshes.Length)], plants);
-                strand.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+                // Tall kelp casts long, swaying shadows over the sand.
+                MeshObject("Strand", holdfast, kelpMeshes[c.rng.Next(kelpMeshes.Length)], plants);
                 kelpSpots.Add(p);
             }
 

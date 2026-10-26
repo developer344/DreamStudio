@@ -289,8 +289,8 @@ namespace DreamStudio.Editor
                 "<b>Grip</b>: grab things and press buttons\nYou can walk around for real, too.\n\n" +
                 "Try it: grab the star above the nightstand.");
             Sign(root, m, new Vector3(-2.2f, 0f, 3.6f), SpawnOffset,
-                "<b>Nightmares & Dreams</b>\n\nEach world first appears through a dark nightmare filter. Find its token, " +
-                "avoid its dangers, and the filter lifts to show the world as it really is.\n\n" +
+                "<b>Nightmares & Dreams</b>\n\nEach world first appears through a dark nightmare filter. Every nightmare hides " +
+                "its own way out, and running from a fear is rarely it. Find the way, and the filter lifts to show the world as it really is.\n\n" +
                 "Then follow the floating lights back to where you started: a portal home will be waiting.");
         }
 

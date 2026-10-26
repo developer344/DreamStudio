@@ -1,30 +1,58 @@
-using System.Collections;
 using UnityEngine;
 
 namespace DreamStudio
 {
     /// <summary>
-    /// The player's air supply in an underwater nightmare. Air drains over time and is topped up
-    /// by <see cref="AirBubble"/>s. Running out blacks you out back at the start. Once the dream is
-    /// restored the player can breathe freely.
+    /// The player's oxygen in an underwater nightmare, shown as a meter under the HUD status line.
+    /// Oxygen drains over time and <see cref="AirBubble"/>s top it up, though each bubble gives a little
+    /// less than the one before: clinging to air works less and less. Nothing tells the player to stop.
+    ///
+    /// The way out is to face the fear. When the oxygen runs out the player starts to drown (the view
+    /// darkens, the heart pounds, the controllers shudder), and if they hold on for
+    /// <see cref="drownDelay"/> seconds without grabbing a bubble, they find they can breathe the water:
+    /// it was a dream all along, and the nightmare lifts. Every so often, while they keep clinging, a
+    /// quiet dream-sign thought surfaces to make them wonder.
     /// </summary>
     public class UnderwaterBreath : MonoBehaviour
     {
         public static UnderwaterBreath Instance { get; private set; }
 
-        [Tooltip("Seconds of air when full.")]
+        [Tooltip("Seconds of oxygen when full.")]
         public float maxAir = 60f;
         [Range(0f, 1f)] public float lowAirThreshold = 0.3f;
+        [Tooltip("Seconds of drowning, with no oxygen, before the player breathes the water.")]
+        public float drownDelay = 2.5f;
+        [Tooltip("Each bubble gives this fraction of what the one before gave.")]
+        [Range(0.5f, 1f)] public float bubbleFalloff = 0.9f;
+        [Tooltip("Seconds between the quiet dream-sign thoughts, while the player keeps clinging to air.")]
+        public float thoughtInterval = 100f;
+
+        [TextArea]
+        public string[] thoughts =
+        {
+            "The fish drift past you, unhurried.\nNot one of them is reaching for air.",
+            "Your chest should be burning by now...\nIt isn't.",
+            "How long have you been down here?\nLong enough to have drowned.",
+            "Why are you so afraid of the water?",
+        };
+
+        [TextArea] public string breakthroughMessage = "You can't hold on any longer... you breathe in.\nThe water fills your lungs like air.\nYou were dreaming all along.";
 
         public float Air { get; private set; }
         public bool CanBreathe { get; private set; }
+        public bool Drowning => !CanBreathe && Air <= 0f;
 
-        bool m_BlackingOut;
+        int m_Gulps;
+        float m_DrowningFor;
+        float m_NextThoughtAt;
+        int m_Thought;
+        float m_NextShudder;
 
         void Awake()
         {
             Instance = this;
             Air = maxAir;
+            m_NextThoughtAt = Time.time + thoughtInterval;
         }
 
         void OnDestroy()
@@ -40,74 +68,79 @@ namespace DreamStudio
 
             if (world != null && world.IsDream)
             {
-                if (!CanBreathe && hud != null && !world.ArrivedRestored)
+                if (!CanBreathe && hud != null)
                 {
                     hud.SetTint(Color.clear, 0f);
-                    hud.SetStatus("AIR  FULL", new Color(0.6f, 1f, 0.95f));
-                    StartCoroutine(ClearStatusLater(6f));
+                    hud.SetStatus("", Color.white);
+                    hud.HideMeter();
                 }
                 CanBreathe = true;
                 return;
             }
-
-            if (m_BlackingOut)
+            if (world != null && world.IsWakingUp)
                 return;
 
             Air = Mathf.Max(0f, Air - Time.deltaTime);
             float ratio = Air / maxAir;
+            float low = 1f - Mathf.Clamp01(ratio / lowAirThreshold);
 
             if (hud != null)
             {
-                Color color = ratio > lowAirThreshold ? new Color(0.7f, 0.95f, 1f) : new Color(1f, 0.45f, 0.4f);
-                hud.SetStatus($"AIR  {Mathf.CeilToInt(ratio * 100f)}%", color);
-
-                float low = 1f - Mathf.Clamp01(ratio / lowAirThreshold);
-                DreamAudio.RequestHeartbeat(low);
-                float pulse = 0.8f + 0.2f * Mathf.Sin(Time.time * Mathf.Lerp(2f, 8f, low));
-                hud.SetTint(new Color(0f, 0.02f, 0.08f), low * 0.75f * pulse);
+                var healthy = new Color(0.63f, 0.82f, 0.84f);
+                var danger = new Color(0.91f, 0.46f, 0.34f);
+                float flash = Drowning ? 0.5f + 0.5f * Mathf.Sin(Time.time * 12f) : 1f;
+                var color = Color.Lerp(healthy, danger, low);
+                hud.SetStatus($"OXYGEN  {Mathf.CeilToInt(ratio * 100f)}%", color);
+                hud.SetMeter(Drowning ? 1f : ratio, Drowning ? danger * flash : color);
             }
 
-            if (Air <= 0f)
-                StartCoroutine(BlackOutRoutine());
+            if (!Drowning)
+            {
+                m_DrowningFor = 0f;
+                DreamAudio.RequestHeartbeat(low);
+                if (hud != null)
+                    hud.SetTint(new Color(0.08f, 0.1f, 0.2f), low * 0.7f);
+                MaybeThink(hud);
+                return;
+            }
+
+            // Drowning: the dark closes in, the heart races, the hands shudder... and then you breathe.
+            m_DrowningFor += Time.deltaTime;
+            float k = Mathf.Clamp01(m_DrowningFor / drownDelay);
+            DreamAudio.RequestHeartbeat(1f);
+            if (hud != null)
+                hud.SetTint(new Color(0.05f, 0.07f, 0.14f), Mathf.Lerp(0.7f, 0.92f, k));
+            if (Time.time >= m_NextShudder)
+            {
+                DreamHaptics.Pulse(Mathf.Lerp(0.3f, 0.8f, k), 0.12f);
+                m_NextShudder = Time.time + Mathf.Lerp(0.5f, 0.25f, k);
+            }
+            if (m_DrowningFor >= drownDelay && world != null)
+            {
+                DreamAudio.Play(DreamSound.Gulp);
+                world.RestoreDream(breakthroughMessage);
+            }
         }
 
+        /// <summary>A bubble of air: less each time, as the nightmare tightens its grip.</summary>
         public void AddAir(float seconds)
         {
             if (CanBreathe)
                 return;
-            Air = Mathf.Min(maxAir, Air + seconds);
+            float gain = seconds * Mathf.Pow(bubbleFalloff, m_Gulps);
+            m_Gulps++;
+            Air = Mathf.Min(maxAir, Air + gain);
+            m_DrowningFor = 0f;
             if (DreamHud.Instance != null)
-                DreamHud.Instance.ShowMessage("You gulp a bubble of air!", 1.5f);
+                DreamHud.Instance.ShowMessage(m_Gulps < 6 ? "You gulp a bubble of air!" : "You gulp a bubble of air...\nIt seems to fill you less each time.", 1.8f);
         }
 
-        IEnumerator BlackOutRoutine()
+        void MaybeThink(DreamHud hud)
         {
-            m_BlackingOut = true;
-            var hud = DreamHud.Instance;
-            var world = NightmareWorld.Instance;
-
-            if (hud != null)
-            {
-                yield return hud.FadeTo(1f, 0.8f, Color.black);
-                hud.SetTint(Color.clear, 0f);
-                hud.ShowMessage("You ran out of air...\nTouch air bubbles to breathe.\nFind the Magic Shell!", 5f);
-            }
-
-            if (world != null && world.spawnPoint != null)
-                DreamPlayer.Teleport(world.spawnPoint);
-            Air = maxAir;
-
-            yield return new WaitForSeconds(1.5f);
-            if (hud != null)
-                yield return hud.FadeTo(0f, 1.2f, Color.black);
-            m_BlackingOut = false;
-        }
-
-        IEnumerator ClearStatusLater(float delay)
-        {
-            yield return new WaitForSeconds(delay);
-            if (DreamHud.Instance != null)
-                DreamHud.Instance.SetStatus("", Color.white);
+            if (hud == null || thoughts == null || m_Thought >= thoughts.Length || Time.time < m_NextThoughtAt)
+                return;
+            hud.ShowMessage(thoughts[m_Thought++], 6f);
+            m_NextThoughtAt = Time.time + thoughtInterval;
         }
     }
 }

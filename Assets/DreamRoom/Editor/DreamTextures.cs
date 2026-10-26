@@ -66,9 +66,10 @@ namespace DreamStudio.Editor
             ("Reef_Algae", Surface.Organic, 1f, 1f), ("Reef_Starfish", Surface.Grain, 1f, 1f), ("Reef_Urchin", Surface.Grain, 1f, 0.6f),
             ("Ocean_Clam", Surface.Glaze, 2f, 0.8f),
             ("Wreck_Planks", Surface.Planks, 1f, 1.2f), ("Wreck_Timber", Surface.Bark, 1f, 1.2f), ("Wreck_Iron", Surface.Metal, 1f, 1f), ("Wreck_Algae", Surface.Organic, 1f, 1f), ("Ocean_Fish_", Surface.Glaze, 1f, 0.5f),
-            // Upside-Down City
-            ("City_Roof", Surface.Grain, 4f, 1f), ("City_WallA", Surface.Brick, 4f, 0.8f), ("City_WallB", Surface.Brick, 4f, 0.8f),
-            ("City_Bridge", Surface.Bark, 3f, 1f), ("City_Planter", Surface.Brick, 1f, 0.8f), ("City_Garden", Surface.Organic, 2f, 1f),
+            // Glass Garden
+            ("Garden_Lawn", Surface.Organic, 1f, 0.8f), ("Garden_Stone", Surface.Stone, 1f, 0.6f), ("Garden_Gravel", Surface.Sand, 1f, 0.8f),
+            ("Garden_Hedge", Surface.Organic, 1f, 1f), ("Garden_Pot", Surface.Grain, 1f, 0.6f), ("Garden_Bench", Surface.Bark, 1f, 0.8f),
+            ("Room_Wallpaper", Surface.Grain, 1f, 0.4f), ("Room_Floor", Surface.Planks, 1f, 1f), ("Room_Ceiling", Surface.Grain, 1f, 0.4f), ("Room_Door", Surface.Bark, 1f, 0.8f),
             // Start Room palace
             ("Palace_Marble", Surface.Marble, 1f, 0.15f), ("Palace_MarbleDark", Surface.Marble, 1f, 0.15f), ("Palace_MarbleCream", Surface.Marble, 1f, 0.15f),
             ("Palace_Wall", Surface.Grain, 1f, 0.25f), ("Palace_Panel", Surface.Grain, 1f, 0.25f), ("Palace_Velvet", Surface.Grain, 1f, 0.3f),
@@ -150,6 +151,20 @@ namespace DreamStudio.Editor
         /// </summary>
         public static Material Surfaced(Material mat, Surface surface, float tiling, float bumpScale = 1f)
         {
+            // In the illustration style the texture is only a faint, flattened trace, projected the same way.
+            if (mat.shader != null && mat.shader.name == DreamBuildUtils.StorybookShaderName)
+            {
+                var (detail, _) = Get(surface);
+                mat.SetTexture("_BaseMap", detail);
+                mat.SetTextureScale("_BaseMap", Vector2.one);
+                mat.SetFloat("_Triplanar", 1f);
+                mat.EnableKeyword("_TRIPLANAR");
+                mat.SetFloat("_WorldScale", 1f / (MetersPerTile(surface) * (mat.name.StartsWith("Artifact_") ? 0.4f : 1f)));
+                mat.SetFloat("_BlendSharpness", 4f);
+                EditorUtility.SetDirty(mat);
+                return mat;
+            }
+
             var triplanar = TriplanarShader();
             if (triplanar != null)
             {

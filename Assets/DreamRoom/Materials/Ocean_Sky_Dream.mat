@@ -27,9 +27,9 @@ Material:
     m_Floats:
     - _StarDensity: 0
     m_Colors:
-    - _BottomColor: {r: 0.05, g: 0.3, b: 0.45, a: 1}
-    - _HorizonColor: {r: 0.2, g: 0.6, b: 0.8, a: 1}
-    - _NebulaColor: {r: 0.8, g: 1, b: 1, a: 1}
-    - _TopColor: {r: 0.55, g: 0.9, b: 1, a: 1}
+    - _BottomColor: {r: 0.2, g: 0.36, b: 0.4, a: 1}
+    - _HorizonColor: {r: 0.38, g: 0.6, b: 0.6, a: 1}
+    - _NebulaColor: {r: 0.88, g: 0.96, b: 0.93, a: 1}
+    - _TopColor: {r: 0.66, g: 0.82, b: 0.8, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

@@ -16,7 +16,7 @@ namespace DreamStudio.Editor
     /// Each world starts as a nightmare; finding its token turns it into a dream and opens the way home.
     /// Run from the menu: Dream Studio > Build Dream Worlds (or Build Everything to rebuild the hub too).
     /// </summary>
-    public static class DreamWorldBuilder
+    public static partial class DreamWorldBuilder
     {
         [MenuItem("Dream Studio/Build Everything")]
         public static void BuildEverything()
@@ -48,7 +48,7 @@ namespace DreamStudio.Editor
                 {
                     case "HauntedForest": BuildHauntedForest(world); break;
                     case "SunkenDepths": BuildSunkenDepths(world); break;
-                    case "UpsideDownCity": BuildUpsideDownCity(world); break;
+                    case "GlassGarden": BuildGlassGarden(world); break;
                     default: Debug.LogError($"[DreamWorldBuilder] No builder for world '{world.scene}'."); break;
                 }
 
@@ -90,7 +90,7 @@ namespace DreamStudio.Editor
                 if (r.sharedMaterial.IsKeywordEnabled("_ALPHATEST_ON")) // grass, ferns, leaves: walk-through
                     continue;
                 string shader = r.sharedMaterial.shader.name;
-                if (shader != "Universal Render Pipeline/Lit" && shader != "DreamStudio/TriplanarLit")
+                if (shader != "Universal Render Pipeline/Lit" && shader != "DreamStudio/TriplanarLit" && shader != StorybookShaderName)
                     continue;
                 if (HasScriptedAncestor(r.transform, root))
                     continue;
@@ -196,7 +196,7 @@ namespace DreamStudio.Editor
             ctx.sun = sunGo.AddComponent<Light>();
             ctx.sun.type = LightType.Directional;
             ctx.sun.shadows = LightShadows.Soft;
-            ctx.sun.shadowStrength = 0.85f;
+            ctx.sun.shadowStrength = 1f;
 
             ctx.spawn = new GameObject("Spawn Point").transform;
             ctx.spawn.SetPositionAndRotation(spawnPos, Quaternion.Euler(0f, spawnYaw, 0f));
@@ -221,6 +221,7 @@ namespace DreamStudio.Editor
                 ctx.nightmare.spawnPoint = ctx.spawn;
                 ctx.vision = ctx.nightmare.gameObject.AddComponent<DreamVision>();
                 ctx.vision.filterMaterial = LoadOrCreateMaterial("VisionFilter", "DreamStudio/VisionFilter");
+                ctx.vision.sparkleMaterial = ctx.sparkle;
                 ctx.vision.dream = DreamLook();
                 ctx.nightmare.vision = ctx.vision;
             }
@@ -249,7 +250,7 @@ namespace DreamStudio.Editor
             {
                 case "HauntedForest": return DreamSound.ForestAmbience;
                 case "SunkenDepths": return DreamSound.OceanAmbience;
-                case "UpsideDownCity": return DreamSound.CityAmbience;
+                case "GlassGarden": return DreamSound.ForestAmbience;
                 default: return DreamSound.HubAmbience;
             }
         }
@@ -272,14 +273,15 @@ namespace DreamStudio.Editor
         /// </summary>
         static DreamVision.Look NightmareLook(Color tint)
         {
+            // Like the navy night cards: the world sinks into deep blue, darkest at the edges.
+            var night = new Color(0.11f, 0.14f, 0.22f);
             return new DreamVision.Look
             {
-                tint = tint,
-                edgeTint = tint * 0.12f,
+                tint = Color.Lerp(tint, new Color(0.34f, 0.38f, 0.58f), 0.5f),
+                edgeTint = night * 0.6f,
                 glow = Color.clear,
                 vignetteStart = 0.04f,
                 vignetteEnd = 0.42f,
-                pulse = 1f,
             };
         }
 
@@ -289,11 +291,10 @@ namespace DreamStudio.Editor
             return new DreamVision.Look
             {
                 tint = Color.white,
-                edgeTint = new Color(1f, 0.96f, 0.98f),
-                glow = new Color(1f, 0.8f, 0.92f, 0.12f),
+                edgeTint = new Color(1f, 0.95f, 0.9f),
+                glow = new Color(1f, 0.85f, 0.75f, 0.12f),
                 vignetteStart = 0.25f,
                 vignetteEnd = 0.9f,
-                pulse = 0f,
             };
         }
 
@@ -638,36 +639,46 @@ namespace DreamStudio.Editor
             return dreamLantern;
         }
 
-        /// <summary>The portal back to the hub, on a little stone step. Facing its local +Z.</summary>
+        /// <summary>
+        /// Words on a stone tablet standing at <paramref name="localPos"/>, facing along <paramref name="yaw"/>,
+        /// lettered in pale gold so they can be read even through the nightmare's dark.
+        /// </summary>
+        static void Inscription(Transform parent, Vector3 localPos, float yaw, string text, Material stone)
+        {
+            var tablet = Group("Inscription", parent);
+            tablet.transform.localPosition = localPos;
+            tablet.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+            Box("Tablet", tablet.transform, stone, new Vector3(0f, 0.7f, 0f), new Vector3(1.3f, 1.4f, 0.2f));
+            Box("Tablet Base", tablet.transform, stone, new Vector3(0f, 0.06f, 0f), new Vector3(1.5f, 0.12f, 0.4f));
+            var words = new GameObject("Words");
+            words.transform.SetParent(tablet.transform, false);
+            words.transform.localPosition = new Vector3(0f, 0.75f, 0.11f);
+            words.transform.localRotation = Quaternion.Euler(0f, 180f, 0f); // readable from the tablet's front (+Z)
+            var tmp = words.AddComponent<TMPro.TextMeshPro>();
+            tmp.text = text;
+            tmp.fontSize = 1.4f;
+            tmp.enableAutoSizing = true;
+            tmp.fontSizeMin = 0.7f;
+            tmp.fontSizeMax = 1.4f;
+            tmp.alignment = TMPro.TextAlignmentOptions.Center;
+            tmp.color = new Color(1f, 0.9f, 0.68f);
+            tmp.rectTransform.sizeDelta = new Vector2(1.15f, 1.2f);
+        }
+
+        /// <summary>The portal back to the hub, in a broken ring of floating stones on worn steps. Facing its local +Z.</summary>
         static GameObject CreateWayHome(Transform parent, Vector3 position, float yaw, Material stepMat)
         {
             var home = Group("Way Home", parent);
 
-            var inner = new Color(1f, 0.85f, 0.95f);
-            var outer = new Color(0.55f, 0.45f, 0.95f);
+            // A warm, golden portal in a broken ring of floating stones (the fourth portal concept).
+            var inner = new Color(1f, 0.95f, 0.75f);
+            var outer = new Color(0.95f, 0.78f, 0.38f);
+            var spec = DreamPortalGates.SpecFor("WayHome");
             var portal = CreatePortal(home.transform, "Return to the Portal Room", HubSceneName, HubSceneName, inner, outer,
-                new Vector3(0f, PortalHalfHeight + 0.5f, 0.05f));
-            portal.transform.localPosition = position + Vector3.up * (0.3f + PortalHalfHeight);
+                new Vector3(0f, spec.half.y + 1.4f, 0.05f), spec.half, spec.shape);
+            portal.transform.localPosition = position + Vector3.up * spec.center;
             portal.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
-
-            var step = Box("Step", home.transform, stepMat, Vector3.zero, new Vector3(PortalHalfWidth * 2f + 0.4f, 0.3f, 0.8f), false);
-            step.transform.localPosition = position + Vector3.up * 0.15f;
-            step.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
-
-            // A solid stone gate around the back and sides, so nobody wanders behind the portal (or off a
-            // rooftop behind it). Its back wall also hides the label from behind.
-            var gate = Group("Gate", home.transform);
-            gate.transform.localPosition = position;
-            gate.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
-            float gateWidth = PortalHalfWidth * 2f + 1.4f;
-            float gateHeight = 0.3f + PortalHalfHeight * 2f + 1.6f;
-            Box("Back Wall", gate.transform, stepMat, new Vector3(0f, gateHeight * 0.5f, -0.6f), new Vector3(gateWidth, gateHeight, 0.3f));
-            for (int side = -1; side <= 1; side += 2)
-                Box("Pillar", gate.transform, stepMat, new Vector3(side * (PortalHalfWidth + 0.45f), 1.8f, -0.1f), new Vector3(0.5f, 3.6f, 1.1f));
-            Box("Lintel", gate.transform, stepMat, new Vector3(0f, 0.3f + PortalHalfHeight * 2f + 0.2f, -0.35f), new Vector3(gateWidth, 0.4f, 0.5f));
-            var crown = CreatePrimitive(PrimitiveType.Sphere, "Crown", gate.transform, Lit("WayHome_Beam", new Color(1f, 0.9f, 1f), 0.5f, new Color(2.2f, 1.8f, 2.4f)), false);
-            crown.transform.localPosition = new Vector3(0f, gateHeight + 0.25f, -0.6f);
-            crown.transform.localScale = Vector3.one * 0.5f;
+            DreamPortalGates.WayHome(portal.transform);
 
             // A tall beam of light above the portal, visible from anywhere, to lead the player back.
             var beam = CreatePrimitive(PrimitiveType.Cylinder, "Beacon Beam", home.transform,
@@ -1232,7 +1243,7 @@ namespace DreamStudio.Editor
                     new Vector3(Random.Range(-15f, 15f), 0f, Random.Range(-15f, 15f)));
         }
 
-        /// <summary>Nightmare-only: a glowing rune circle on the ground with an arrow toward the goal.</summary>
+        /// <summary>Nightmare-only: a glowing rune circle on the ground, one of a trail toward the goal (no arrows: the player reads the trail).</summary>
         static void Rune(Transform parent, Vector3 position, float yaw, ArtifactMats m, bool withLight)
         {
             var artifact = NewArtifact(parent, "Rune (Nightmare Only)", position, yaw, true, false);
@@ -1248,9 +1259,6 @@ namespace DreamStudio.Editor
             for (int g = 0; g < 6; g++)
                 Part(PrimitiveType.Cube, "Glyph", n, m.nightGlow, Quaternion.Euler(0f, g * 60f + 30f, 0f) * Vector3.forward * 0.62f + Vector3.up * 0.03f,
                     new Vector3(0.1f, 0.02f, 0.04f), new Vector3(0f, g * 60f + 30f + (g % 2) * 45f, 0f));
-            Part(PrimitiveType.Cube, "Arrow", n, m.nightGlow, new Vector3(0f, 0.03f, 0f), new Vector3(0.12f, 0.02f, 0.7f));
-            for (int side = -1; side <= 1; side += 2)
-                Part(PrimitiveType.Cube, "Arrow Head", n, m.nightGlow, new Vector3(side * 0.115f, 0.03f, 0.186f), new Vector3(0.08f, 0.02f, 0.4f), new Vector3(0f, -side * 35f, 0f));
             Particles(n, "Embers", new Vector3(0f, 0.2f, 0f), new Vector3(1f, 0.2f, 1f), 3f, m.night, Color.black, 0.02f, 0.04f, m.sparkle);
             if (withLight)
                 PointLight(n, "Light", new Vector3(0f, 0.4f, 0f), m.night, 3f, 1f);
@@ -1289,26 +1297,26 @@ namespace DreamStudio.Editor
             var eyesMat = Lit("Forest_Eyes", new Color(1f, 0.1f, 0.05f), 0.5f, new Color(3f, 0.25f, 0.1f));
             var shadowMat = Lit("Forest_Shadow", new Color(0.01f, 0.01f, 0.015f), 0f, Color.black);
             var wispMat = Lit("Forest_Wisp", new Color(0.6f, 1f, 1f), 0.5f, new Color(0.8f, 1.6f, 1.8f));
-            var tokenMat = Lit("Forest_TokenOfFear", new Color(0.35f, 0.05f, 0.5f), 0.9f, new Color(1.2f, 0.2f, 1.6f));
 
             var nightmare = ctx.nightmare;
             nightmare.tokenName = "Token of Fear";
-            nightmare.introMessage = "You are lost in the Haunted Forest...\nSomething is following you.\nFind the Token of Fear!";
-            nightmare.dreamMessage = "Your fear melts away.\nThe forest dreams again.\nA portal home now waits where you started.";
+            nightmare.introMessage = "You are lost in the Haunted Forest...\nSomething is following you.";
+            nightmare.dreamMessage = "The shadow is gone, and your fear with it.\nThe forest dreams again.\nA portal home now waits where you started.";
             var atmosphere = new Atmosphere
             {
-                sky = Sky("Forest_Sky_Dream", new Color(0.3f, 0.55f, 0.95f), new Color(1f, 0.82f, 0.9f),
-                    new Color(0.6f, 0.8f, 0.6f), new Color(1f, 0.9f, 1f), 80f),
-                fogColor = new Color(0.95f, 0.85f, 0.92f),
+                // Dusty blue overhead fading to a peach horizon, as on the cards.
+                sky = Sky("Forest_Sky_Dream", new Color(0.63f, 0.76f, 0.8f), new Color(0.96f, 0.8f, 0.7f),
+                    new Color(0.76f, 0.8f, 0.7f), new Color(1f, 0.95f, 0.9f), 30f),
+                fogColor = new Color(0.93f, 0.86f, 0.8f),
                 fogDensity = 0.018f,
-                ambientSky = new Color(0.6f, 0.65f, 0.85f),
-                ambientEquator = new Color(0.7f, 0.65f, 0.6f),
-                ambientGround = new Color(0.3f, 0.35f, 0.25f),
-                sunColor = new Color(1f, 0.93f, 0.8f),
-                sunIntensity = 1.2f,
+                ambientSky = new Color(0.75f, 0.8f, 0.85f),
+                ambientEquator = new Color(0.9f, 0.82f, 0.75f),
+                ambientGround = new Color(0.55f, 0.6f, 0.5f),
+                sunColor = new Color(1f, 0.92f, 0.82f),
+                sunIntensity = 1.1f,
             };
             ApplyAtmosphere(atmosphere, ctx.sun);
-            ctx.vision.nightmare = NightmareLook(new Color(0.32f, 0.3f, 0.5f));
+            ctx.vision.nightmare = NightmareLook(new Color(0.34f, 0.4f, 0.56f));
 
 
             var tokenPos = new Vector3(-26f, 0f, 56f);
@@ -1358,13 +1366,10 @@ namespace DreamStudio.Editor
             altar.transform.localScale = new Vector3(1f, 0.45f, 1f);
             UseMeshCollider(altar);
 
-            var token = CreateToken(clearing.transform, "Token of Fear", new Vector3(0f, 1.45f, 0f), new Color(0.7f, 0.2f, 1f),
-                "The Token of Fear pulses nearby...\nReach out and grab it!", out var tokenVisual);
-            var gem = MeshObject("Crystal", tokenVisual, SaveMesh(CreateCrystal(0.12f, 0.36f), "TokenCrystal"), tokenMat);
-            gem.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-            Particles(clearing.transform, "Fear Aura", new Vector3(0f, 1.4f, 0f), new Vector3(1.2f, 1f, 1.2f), 12f,
-                new Color(0.7f, 0.2f, 1f), new Color(1f, 0.3f, 0.6f), 0.03f, 0.08f, ctx.sparkle);
-            token.hintDistance = 7f;
+            // There is no token: the nightmare ends when the player faces the stalker. The wisps and runes
+            // lead here, to words on the altar.
+            Inscription(clearing.transform, new Vector3(0f, 0.9f, 0f), Quaternion.LookRotation(-tokenPos).eulerAngles.y,
+                "What you turn to face\ncannot follow you.", stoneMat);
 
             // --- Will-o'-wisps: a faint trail of lights leading toward the clearing.
             var wisps = Group("Wisps", root);
@@ -1416,7 +1421,7 @@ namespace DreamStudio.Editor
             var stalkerAI = stalker.AddComponent<ForestStalker>();
             stalkerAI.eyeLight = eyeLight;
             stalkerAI.ground = groundGo.GetComponent<Collider>();
-            stalkerAI.goal = token.transform;
+            stalkerAI.body = body.transform;
 
             var eyes = WatchingEyes(root, eyesMat, 30, 15f, 70f);
 
@@ -1470,29 +1475,28 @@ namespace DreamStudio.Editor
             var rockMat = Lit("Ocean_Rock_Dream", new Color(0.5f, 0.48f, 0.45f), 0.2f, new Color(0.01f, 0.01f, 0.01f));
             var templeMat = Lit("Ocean_Temple_Dream", new Color(0.85f, 0.88f, 0.95f), 0.5f, new Color(0.1f, 0.12f, 0.16f));
             var bubbleMat = Lit("Ocean_Bubble", new Color(0.75f, 0.95f, 1f), 1f, new Color(0.4f, 0.7f, 0.9f));
-            var shellMat = Lit("Ocean_MagicShell", new Color(1f, 0.85f, 0.8f), 0.9f, new Color(1.2f, 0.7f, 0.9f));
-            var clamMat = Lit("Ocean_Clam", new Color(0.35f, 0.3f, 0.45f), 0.6f, new Color(0.08f, 0.05f, 0.12f));
             var lureMat = Lit("Ocean_Lure", new Color(0.9f, 1f, 0.4f), 0.5f, new Color(1.8f, 2f, 0.5f));
             var jellyMat = Lit("Ocean_Jelly", new Color(0.8f, 0.5f, 1f), 0.8f, new Color(0.8f, 0.4f, 1.2f));
 
             var nightmare = ctx.nightmare;
             nightmare.tokenName = "Magic Shell";
-            nightmare.introMessage = "You are sinking in the Sunken Depths...\nYou can't breathe!\nSwim: pull your arms back, or push the stick where you look.\nFind the Magic Shell. Touch air bubbles to catch your breath.";
-            nightmare.dreamMessage = "The shell sings and the water fills with light.\nYou can breathe!\nA portal home now waits where you started.";
+            nightmare.introMessage = "You are sinking in the Sunken Depths...\nYou can't breathe!\nSwim: pull your arms back, or push the stick where you look.\nBubbles of air rise from the vents.";
+            nightmare.dreamMessage = "The water is as easy to breathe as air.\nThe sea is yours now.\nA portal home now waits where you started.";
             var atmosphere = new Atmosphere
             {
-                sky = Sky("Ocean_Sky_Dream", new Color(0.55f, 0.9f, 1f), new Color(0.2f, 0.6f, 0.8f),
-                    new Color(0.05f, 0.3f, 0.45f), new Color(0.8f, 1f, 1f), 0f),
-                fogColor = new Color(0.25f, 0.65f, 0.8f),
+                // Soft sea-green water, like the sinking card.
+                sky = Sky("Ocean_Sky_Dream", new Color(0.66f, 0.82f, 0.8f), new Color(0.38f, 0.6f, 0.6f),
+                    new Color(0.2f, 0.36f, 0.4f), new Color(0.88f, 0.96f, 0.93f), 0f),
+                fogColor = new Color(0.42f, 0.62f, 0.62f),
                 fogDensity = 0.03f,
-                ambientSky = new Color(0.5f, 0.8f, 0.95f),
-                ambientEquator = new Color(0.35f, 0.65f, 0.75f),
-                ambientGround = new Color(0.3f, 0.35f, 0.35f),
-                sunColor = new Color(0.85f, 1f, 1f),
-                sunIntensity = 1.1f,
+                ambientSky = new Color(0.62f, 0.78f, 0.78f),
+                ambientEquator = new Color(0.46f, 0.65f, 0.65f),
+                ambientGround = new Color(0.32f, 0.4f, 0.4f),
+                sunColor = new Color(0.96f, 1f, 0.95f),
+                sunIntensity = 1f,
             };
             ApplyAtmosphere(atmosphere, ctx.sun);
-            ctx.vision.nightmare = NightmareLook(new Color(0.22f, 0.38f, 0.5f));
+            ctx.vision.nightmare = NightmareLook(new Color(0.24f, 0.36f, 0.48f));
 
             var breath = nightmare.gameObject.AddComponent<UnderwaterBreath>();
             breath.maxAir = 75f;
@@ -1512,12 +1516,11 @@ namespace DreamStudio.Editor
             // Once the nightmare lifts, the dream filter shows the world through clear blue-green water.
             ctx.vision.dream = new DreamVision.Look
             {
-                tint = new Color(0.82f, 0.95f, 1f),
-                edgeTint = new Color(0.55f, 0.82f, 0.95f),
-                glow = new Color(0.45f, 0.9f, 1f, 0.12f),
+                tint = new Color(0.88f, 0.97f, 0.95f),
+                edgeTint = new Color(0.62f, 0.82f, 0.8f),
+                glow = new Color(0.65f, 0.95f, 0.9f, 0.1f),
                 vignetteStart = 0.2f,
                 vignetteEnd = 0.9f,
-                pulse = 0.15f,
             };
 
 
@@ -1560,29 +1563,9 @@ namespace DreamStudio.Editor
             }
             Box("Altar", temple.transform, templeMat, new Vector3(0f, 0.8f, 0f), new Vector3(1.3f, 1f, 1.3f));
 
-            var clamBottom = CreatePrimitive(PrimitiveType.Sphere, "Clam (Bottom)", temple.transform, clamMat, false);
-            clamBottom.transform.localPosition = new Vector3(0f, 1.38f, 0f);
-            clamBottom.transform.localScale = new Vector3(1.1f, 0.25f, 1.1f);
-            var clamTop = CreatePrimitive(PrimitiveType.Sphere, "Clam (Top)", temple.transform, clamMat, false);
-            clamTop.transform.localPosition = new Vector3(0f, 1.75f, -0.4f);
-            clamTop.transform.localRotation = Quaternion.Euler(-55f, 0f, 0f);
-            clamTop.transform.localScale = new Vector3(1.1f, 0.25f, 1.1f);
-
-            var token = CreateToken(temple.transform, "Magic Shell", new Vector3(0f, 1.75f, 0.05f), new Color(1f, 0.7f, 0.85f),
-                "The Magic Shell is singing softly nearby...\nReach out and take it!", out var shellVisual);
-            token.hintDistance = 8f;
-            // A spiral of shrinking spheres reads as a conch shell.
-            for (int i = 0; i < 10; i++)
-            {
-                float a = i * 55f * Mathf.Deg2Rad;
-                float r = 0.012f * (9 - i);
-                var whorl = CreatePrimitive(PrimitiveType.Sphere, "Whorl", shellVisual, shellMat, false);
-                whorl.transform.localPosition = new Vector3(Mathf.Cos(a) * r, (9 - i) * -0.012f + 0.05f, Mathf.Sin(a) * r);
-                whorl.transform.localScale = Vector3.one * (0.04f + 0.018f * (9 - i));
-                whorl.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-            }
-            Particles(temple.transform, "Shell Glimmer", new Vector3(0f, 1.8f, 0f), new Vector3(1.2f, 1f, 1.2f), 12f,
-                new Color(1f, 0.8f, 0.9f), new Color(0.8f, 0.9f, 1f), 0.03f, 0.07f, ctx.sparkle);
+            // Where the Magic Shell once lay: words on the altar for anyone who follows the runes this far.
+            Inscription(temple.transform, new Vector3(0f, 1.3f, 0f), Quaternion.LookRotation(-templePos).eulerAngles.y,
+                "The sea drowns only those\nwho are afraid of it.", templeMat);
 
             // --- Air vents: rising bubbles with a pocket of air at head height. Some lead toward the temple.
             var vents = Group("Air Vents", root);
@@ -1713,257 +1696,6 @@ namespace DreamStudio.Editor
             nightmare.dreamOnly = new[] { home };
             foreach (var go in nightmare.dreamOnly)
                 go.SetActive(false);
-        }
-
-        // =====================================================================
-        // 3. Upside-Down City — cross the rooftops over the void, find the Compass of Up
-        // =====================================================================
-
-        static void BuildUpsideDownCity(World world)
-        {
-            var ctx = SetupWorld(world, Vector3.zero, 0f, true);
-            var root = ctx.root;
-
-            var roofMat = Lit("City_Roof", new Color(0.75f, 0.7f, 0.8f), 0.3f, new Color(0.06f, 0.05f, 0.08f));
-            var wallA = Lit("City_WallA", new Color(0.55f, 0.75f, 0.85f), 0.4f, new Color(0.04f, 0.06f, 0.08f));
-            var wallB = Lit("City_WallB", new Color(0.9f, 0.6f, 0.75f), 0.4f, new Color(0.08f, 0.04f, 0.06f));
-            var windows = Lit("City_Windows", new Color(1f, 0.9f, 0.6f), 0.8f, new Color(1.6f, 1.3f, 0.6f));
-            var bridgeMat = Lit("City_Bridge", new Color(0.95f, 0.85f, 0.6f), 0.4f, new Color(0.1f, 0.08f, 0.04f));
-            var searchMat = Lit("City_Searchlight", new Color(1f, 0.2f, 0.15f), 0.5f, new Color(2.5f, 0.3f, 0.2f));
-            var compassMat = Lit("City_Compass", new Color(0.6f, 1f, 0.9f), 0.95f, new Color(0.6f, 1.6f, 1.3f));
-            var needleMat = Lit("City_CompassNeedle", new Color(1f, 0.35f, 0.5f), 0.9f, new Color(1.6f, 0.3f, 0.6f));
-            var lanternMat = Lit("City_Lantern", new Color(1f, 0.85f, 0.6f), 0.5f, new Color(2f, 1.4f, 0.7f));
-            var leafMat = Lit("City_Garden", new Color(0.45f, 0.9f, 0.55f), 0.2f, new Color(0.05f, 0.12f, 0.06f));
-            var potMat = Lit("City_Planter", new Color(0.8f, 0.45f, 0.35f), 0.2f, new Color(0.06f, 0.03f, 0.02f));
-
-            var nightmare = ctx.nightmare;
-            nightmare.tokenName = "Compass of Up";
-            nightmare.introMessage = "The Upside-Down City is falling into the sky...\nDon't fall, and stay out of the searchlights!\nCross the rooftops to find the Compass of Up.";
-            nightmare.dreamMessage = "The compass points the way.\nThe city settles into a sweet dream.\nA portal home now waits where you started.";
-            var atmosphere = new Atmosphere
-            {
-                sky = Sky("City_Sky_Dream", new Color(0.35f, 0.55f, 0.95f), new Color(1f, 0.7f, 0.6f),
-                    new Color(0.6f, 0.5f, 0.9f), new Color(1f, 0.8f, 0.9f), 40f),
-                fogColor = new Color(0.85f, 0.7f, 0.85f),
-                fogDensity = 0.012f,
-                ambientSky = new Color(0.65f, 0.65f, 0.85f),
-                ambientEquator = new Color(0.8f, 0.65f, 0.7f),
-                ambientGround = new Color(0.45f, 0.4f, 0.6f),
-                sunColor = new Color(1f, 0.92f, 0.85f),
-                sunIntensity = 1.2f,
-            };
-            ApplyAtmosphere(atmosphere, ctx.sun);
-            ctx.vision.nightmare = NightmareLook(new Color(0.5f, 0.22f, 0.28f));
-
-            var fall = nightmare.gameObject.AddComponent<DreamFallReset>();
-            fall.minHeight = -8f;
-            fall.message = "You fell into the sky below...\nYou wake up where you started.";
-
-            // --- Rooftops floating over the void, joined by narrow bridges. All tops sit at y = 0.
-            (Vector3 center, Vector2 size)[] roofs =
-            {
-                (new Vector3(0f, 0f, 0f), new Vector2(10f, 10f)),
-                (new Vector3(12f, 0f, 9f), new Vector2(6f, 6f)),
-                (new Vector3(4f, 0f, 19f), new Vector2(7f, 6f)),
-                (new Vector3(-9f, 0f, 23f), new Vector2(6f, 6f)),
-                (new Vector3(6f, 0f, 31f), new Vector2(6f, 6f)),
-                (new Vector3(-6f, 0f, 36f), new Vector2(7f, 7f)),
-                (new Vector3(14f, 0f, 40f), new Vector2(6f, 6f)),
-                (new Vector3(2f, 0f, 47f), new Vector2(7f, 6f)),
-                (new Vector3(-12f, 0f, 51f), new Vector2(6f, 6f)),
-                (new Vector3(10f, 0f, 57f), new Vector2(6f, 6f)),
-                (new Vector3(-2f, 0f, 66f), new Vector2(10f, 9f)),
-            };
-            var links = new[] { (0, 1), (1, 2), (2, 3), (2, 4), (3, 5), (4, 5), (4, 6), (5, 7), (6, 7), (7, 8), (7, 9), (8, 10), (9, 10) };
-            int compassRoof = roofs.Length - 1;
-            // The rooftop where the player starts (and where the way home appears) gets a low parapet,
-            // open only where its bridge leaves.
-            var spawnExits = new List<Vector3>();
-            foreach (var (a, b) in links)
-                if (a == 0 || b == 0)
-                {
-                    var n = (roofs[a == 0 ? b : a].center - roofs[0].center).normalized;
-                    spawnExits.Add(roofs[0].center + n * RoofExit(roofs[0].size, n));
-                }
-            var compassPos = roofs[compassRoof].center;
-
-            var city = Group("Rooftops", root);
-            for (int i = 0; i < roofs.Length; i++)
-            {
-                var (center, size) = roofs[i];
-                var building = Group($"Building {i + 1}", city.transform);
-                building.transform.localPosition = center;
-                var top = Box("Roof", building.transform, roofMat, new Vector3(0f, -0.2f, 0f), new Vector3(size.x, 0.4f, size.y));
-                top.AddComponent<TeleportationArea>();
-
-                float depth = Random.Range(30f, 45f);
-                Box("Tower", building.transform, i % 2 == 0 ? wallA : wallB, new Vector3(0f, -0.4f - depth * 0.5f, 0f),
-                    new Vector3(size.x - 0.4f, depth, size.y - 0.4f), false);
-                for (float y = -2f; y > -depth; y -= 3f)
-                    Box("Windows", building.transform, windows, new Vector3(0f, y, 0f), new Vector3(size.x - 0.3f, 0.6f, size.y - 0.3f), false);
-                if (i != 0 && i != compassRoof)
-                    Box("Vent", building.transform, roofMat, new Vector3(size.x * 0.5f - 0.6f, 0.3f, size.y * 0.5f - 0.6f), new Vector3(0.8f, 0.6f, 0.8f), false);
-            }
-
-            Parapet(city.transform, roofs[0].center, roofs[0].size, spawnExits, roofMat);
-
-            var bridges = Group("Bridges", root);
-            var rails = Group("Dream Rails", root);
-            foreach (var (a, b) in links)
-            {
-                Vector3 from = roofs[a].center, to = roofs[b].center;
-                var dir = to - from;
-                var rot = Quaternion.LookRotation(dir);
-                var bridge = Box("Bridge", bridges.transform, bridgeMat, (from + to) * 0.5f + Vector3.down * 0.12f, new Vector3(1.2f, 0.2f, dir.magnitude));
-                bridge.transform.localRotation = rot;
-                bridge.AddComponent<TeleportationArea>();
-
-                // In the dream, railings along the open stretch make every crossing safe.
-                var n = dir.normalized;
-                var gapStart = from + n * RoofExit(roofs[a].size, n);
-                var gapEnd = to - n * RoofExit(roofs[b].size, n);
-                for (int side = -1; side <= 1; side += 2)
-                {
-                    var rail = Box("Rail", rails.transform, bridgeMat, (gapStart + gapEnd) * 0.5f + rot * new Vector3(side * 0.65f, 0.45f, 0f),
-                        new Vector3(0.08f, 0.9f, Vector3.Distance(gapStart, gapEnd)));
-                    rail.transform.localRotation = rot;
-                }
-            }
-
-            // --- The city hanging upside down from the sky.
-            var skyline = Group("Upside-Down Skyline", root);
-            foreach (var p in Scatter(90, 8f, 100f, 7f, null))
-            {
-                float w = Random.Range(3f, 7f), d = Random.Range(3f, 7f), h = Random.Range(10f, 24f);
-                var tower = Group("Hanging Tower", skyline.transform);
-                tower.transform.localPosition = p + Vector3.up * 42f;
-                Box("Body", tower.transform, Random.value < 0.5f ? wallA : wallB, new Vector3(0f, -h * 0.5f, 0f), new Vector3(w, h, d), false);
-                for (float y = -2f; y > -h; y -= 3f)
-                    Box("Windows", tower.transform, windows, new Vector3(0f, y, 0f), new Vector3(w + 0.1f, 0.6f, d + 0.1f), false);
-                Box("Roof", tower.transform, roofMat, new Vector3(0f, -h - 0.2f, 0f), new Vector3(w + 0.4f, 0.4f, d + 0.4f), false);
-                var spire = CreatePrimitive(PrimitiveType.Cylinder, "Antenna", tower.transform, roofMat, false);
-                spire.transform.localPosition = new Vector3(0f, -h - 2f, 0f);
-                spire.transform.localScale = new Vector3(0.15f, 1.8f, 0.15f);
-            }
-
-            // --- The Compass of Up, whose needle always points to the sky.
-            Box("Compass Stand", root, roofMat, compassPos + Vector3.up * 0.5f, new Vector3(0.8f, 1f, 0.8f));
-            var token = CreateToken(root, "Compass of Up", compassPos + Vector3.up * 1.5f, new Color(0.6f, 1f, 0.9f),
-                "The Compass of Up is spinning nearby...\nReach out and grab it!", out var compass);
-            token.hintDistance = 7f;
-            var dial = CreatePrimitive(PrimitiveType.Cylinder, "Dial", compass, compassMat, false);
-            dial.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            dial.transform.localScale = new Vector3(0.3f, 0.02f, 0.3f);
-            MeshObject("Rim", compass, SaveMesh(CreateEllipticTorus(0.16f, 0.16f, 0.02f, 32, 8), "CompassRing"), compassMat);
-            for (int side = -1; side <= 1; side += 2)
-                Box("Needle", compass, needleMat, new Vector3(0f, 0.05f, side * 0.03f), new Vector3(0.03f, 0.22f, 0.02f), false);
-            Particles(root, "Compass Glimmer", compassPos + Vector3.up * 1.5f, new Vector3(1f, 1f, 1f), 12f,
-                new Color(0.6f, 1f, 0.9f), Color.white, 0.03f, 0.07f, ctx.sparkle);
-
-            // --- Nightmare: searchlights sweeping the rooftops and eyes in the void.
-            const string searchMessage = "The searchlight found you...\nYou wake up where you started.";
-            var searchlights = Group("Searchlights", root);
-            foreach (var (roof, radius, speed) in new[] { (2, 2f, 40f), (5, 2.5f, -35f), (7, 2.2f, 32f), (8, 2f, -38f), (compassRoof, 3f, 30f) })
-            {
-                var pivot = Group("Searchlight", searchlights.transform);
-                pivot.transform.localPosition = roofs[roof].center;
-                var spin = pivot.AddComponent<DreamFloat>();
-                spin.bobHeight = 0f;
-                spin.spin = new Vector3(0f, speed, 0f);
-                var escalation = pivot.AddComponent<DreamEscalation>();
-                escalation.goal = compassPos;
-                escalation.range = 50f;
-                escalation.boost = 1.2f;
-
-                var spot = Hazard(pivot.transform, "Beam Spot", new Vector3(0f, 0f, radius), 1.1f, searchMessage).gameObject;
-                var disc = CreatePrimitive(PrimitiveType.Cylinder, "Light Pool", spot.transform, searchMat, false);
-                disc.transform.localPosition = new Vector3(0f, 0.02f, 0f);
-                disc.transform.localScale = new Vector3(2f, 0.01f, 2f);
-                disc.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-                PointLight(spot.transform, "Light", Vector3.up * 3f, new Color(1f, 0.25f, 0.2f), 6f, 3f);
-            }
-
-            var eyes = WatchingEyes(root, searchMat, 20, 15f, 75f);
-
-            // --- Rooftop gardens, floating lanterns and sparkles.
-            var gardens = Group("Rooftop Gardens", root);
-            for (int i = 1; i < roofs.Length; i++)
-            {
-                var (center, size) = roofs[i];
-                var corner = center + new Vector3(-size.x * 0.5f + 0.7f, 0f, size.y * 0.5f - 0.7f);
-                var planter = Box("Planter", gardens.transform, potMat, corner + Vector3.up * 0.25f, new Vector3(0.9f, 0.5f, 0.9f), false);
-                var bush = CreatePrimitive(PrimitiveType.Sphere, "Bush", planter.transform, leafMat, false);
-                bush.transform.localPosition = new Vector3(0f, 1.4f, 0f);
-                bush.transform.localScale = new Vector3(1.4f, 2.4f, 1.4f);
-            }
-            var lanterns = Group("Floating Lanterns", root);
-            for (int i = 0; i < 44; i++)
-            {
-                var (center, size) = roofs[i % roofs.Length];
-                var lantern = CreatePrimitive(PrimitiveType.Sphere, "Lantern", lanterns.transform, lanternMat, false);
-                lantern.transform.localPosition = center + new Vector3(Random.Range(-size.x, size.x), Random.Range(2.5f, 6f), Random.Range(-size.y, size.y));
-                lantern.transform.localScale = Vector3.one * 0.3f;
-                lantern.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-                if (i % 3 == 0)
-                    PointLight(lantern.transform, "Light", Vector3.zero, new Color(1f, 0.85f, 0.6f), 6f, 1f);
-                var bob = lantern.AddComponent<DreamFloat>();
-                bob.bobHeight = 0.3f;
-                bob.bobSpeed = Random.Range(0.1f, 0.2f);
-            }
-            var sparkles = Particles(root, "Dream Sparkles", new Vector3(0f, 3f, 33f), new Vector3(50f, 6f, 80f), 60f,
-                new Color(1f, 0.8f, 0.9f), new Color(0.7f, 0.9f, 1f), 0.03f, 0.07f, ctx.sparkle);
-            var home = CreateWayHome(root, new Vector3(0f, 0f, 3.5f), 180f, roofMat);
-
-            // Artifacts: the route hops roof to roof across bridges; paired artifacts stand on roof corners.
-            var route = new List<Vector3>();
-            int[] chain = { 0, 1, 2, 3, 5, 7, 8, compassRoof };
-            for (int i = 0; i < chain.Length; i++)
-            {
-                route.Add(roofs[chain[i]].center);
-                if (i + 1 < chain.Length)
-                    route.Add((roofs[chain[i]].center + roofs[chain[i + 1]].center) * 0.5f);
-            }
-            var spots = new List<Vector3>();
-            for (int i = 1; i < compassRoof; i++)
-                spots.Add(roofs[i].center + new Vector3(roofs[i].size.x * 0.5f - 0.9f, 0f, -(roofs[i].size.y * 0.5f - 0.9f)));
-            PlaceArtifacts(ctx, new Color(1f, 0.1f, 0.2f), new Color(1f, 0.85f, 0.6f), route, spots);
-            nightmare.nightmareOnly = new[] { searchlights, eyes };
-            nightmare.dreamOnly = new[] { rails, home };
-            foreach (var go in nightmare.dreamOnly)
-                go.SetActive(false);
-        }
-
-        /// <summary>A knee-high wall around a rooftop's edge in one-metre pieces, leaving gaps at <paramref name="openings"/>.</summary>
-        static void Parapet(Transform parent, Vector3 center, Vector2 size, List<Vector3> openings, Material mat)
-        {
-            var parapet = Group("Parapet", parent);
-            float hx = size.x * 0.5f, hz = size.y * 0.5f;
-            for (int edge = 0; edge < 4; edge++)
-            {
-                bool alongX = edge < 2;
-                float fixedCoord = edge % 2 == 0 ? (alongX ? hz : hx) : -(alongX ? hz : hx);
-                float length = alongX ? size.x : size.y;
-                int pieces = Mathf.RoundToInt(length);
-                for (int i = 0; i < pieces; i++)
-                {
-                    float t = -length * 0.5f + (i + 0.5f) * length / pieces;
-                    var local = alongX ? new Vector3(t, 0f, fixedCoord) : new Vector3(fixedCoord, 0f, t);
-                    bool open = false;
-                    foreach (var o in openings)
-                        if (FlatDistance(center + local, o) < 1.3f)
-                            open = true;
-                    if (open)
-                        continue;
-                    Box("Parapet Wall", parapet.transform, mat, center + local + Vector3.up * 0.5f,
-                        alongX ? new Vector3(length / pieces + 0.02f, 1f, 0.2f) : new Vector3(0.2f, 1f, length / pieces + 0.02f));
-                }
-            }
-        }
-
-        /// <summary>Distance from a rooftop's center to its edge along the flat direction <paramref name="n"/>.</summary>
-        static float RoofExit(Vector2 size, Vector3 n)
-        {
-            return Mathf.Min(size.x * 0.5f / Mathf.Max(Mathf.Abs(n.x), 1e-4f), size.y * 0.5f / Mathf.Max(Mathf.Abs(n.z), 1e-4f));
         }
     }
 }

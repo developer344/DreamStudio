@@ -92,6 +92,7 @@ namespace DreamStudio
             // After every Awake, so pieces that reset themselves on load don't undo this.
             if (ArrivedRestored)
                 SettleFoundThings();
+            StartCoroutine(PlaceHeadAtSpawn());
 
             yield return new WaitForSeconds(1.5f);
             if (DreamHud.Instance != null)
@@ -117,6 +118,25 @@ namespace DreamStudio
             if (vision != null)
                 vision.SetBlend(1f);
             DreamAudio.SetNightmareDrone(0f);
+        }
+
+        /// <summary>
+        /// The rig is built standing on the spawn point, but the headset can be anywhere in the play space,
+        /// which could leave the player outside a small start area such as the Glass Garden's room. Once tracking
+        /// has started, move the rig so the head itself stands on the spawn point, facing its way.
+        /// </summary>
+        IEnumerator PlaceHeadAtSpawn()
+        {
+            if (spawnPoint == null)
+                yield break;
+            for (float waited = 0f; waited < 2f; waited += Time.unscaledDeltaTime)
+            {
+                var head = DreamPlayer.Head;
+                if (head != null && head.localPosition != Vector3.zero)
+                    break;
+                yield return null;
+            }
+            DreamPlayer.Teleport(spawnPoint);
         }
 
         /// <summary>The token was already claimed and every piece already gathered.</summary>
@@ -154,12 +174,21 @@ namespace DreamStudio
             hud.SetStatus($"RETURN TO THE START  {Mathf.CeilToInt(distance)} m", new Color(1f, 0.9f, 0.97f));
         }
 
+        string m_Revelation;
+
         /// <summary>Called when the player claims the world's token.</summary>
-        public void RestoreDream()
+        public void RestoreDream() => RestoreDream(null);
+
+        /// <summary>
+        /// Lifts the nightmare. <paramref name="revelation"/> is the moment's message (how the player broke
+        /// through); without one, the player is told they found the world's token.
+        /// </summary>
+        public void RestoreDream(string revelation)
         {
             if (IsDream)
                 return;
             IsDream = true;
+            m_Revelation = revelation;
             s_Restored.Add(gameObject.scene.name);
             StartCoroutine(TransitionRoutine());
         }
@@ -203,7 +232,7 @@ namespace DreamStudio
             if (hud != null)
             {
                 hud.SetTint(Color.clear, 0f);
-                hud.ShowMessage($"You found the {tokenName}!", 3f);
+                hud.ShowMessage(m_Revelation ?? $"You found the {tokenName}!", m_Revelation != null ? 5.5f : 3f);
                 yield return hud.FadeTo(0.8f, 0.5f, Color.white);
             }
 

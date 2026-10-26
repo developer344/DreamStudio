@@ -30,7 +30,7 @@ Material:
     - _SwirlSpeed: 0.6
     - _SwirlTightness: 6
     m_Colors:
-    - _ColorA: {r: 0.95, g: 0.55, b: 1, a: 1}
-    - _ColorB: {r: 0.2, g: 0.85, b: 0.7, a: 1}
+    - _ColorA: {r: 0.98, g: 0.76, b: 0.6, a: 1}
+    - _ColorB: {r: 0.86, g: 0.42, b: 0.34, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

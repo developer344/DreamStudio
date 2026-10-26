@@ -131,8 +131,9 @@ namespace DreamStudio.Editor
                 cloud = Lit("Cloud", new Color(1f, 0.95f, 0.98f), 0.1f, new Color(0.35f, 0.28f, 0.38f)),
                 moon = Lit("Moon", new Color(1f, 0.97f, 0.85f), 0.5f, new Color(1.6f, 1.45f, 1.1f)),
                 sparkle = Sparkle(),
-                sky = Sky("DreamSky", new Color(0.12f, 0.08f, 0.35f), new Color(0.95f, 0.6f, 0.85f),
-                    new Color(0.55f, 0.45f, 0.9f), new Color(0.5f, 0.8f, 1f), 120f),
+                // A peach-to-blush dusk, like the Dream Decoder box, with a few pale stars.
+                sky = Sky("DreamSky", new Color(0.93f, 0.62f, 0.52f), new Color(0.97f, 0.84f, 0.78f),
+                    new Color(0.9f, 0.84f, 0.76f), new Color(1f, 0.95f, 0.9f), 50f),
                 portalRing = new Material[Worlds.Length],
             };
 
@@ -207,12 +208,34 @@ namespace DreamStudio.Editor
                 wall.transform.localPosition = dir * Apothem;
                 wall.transform.localRotation = Quaternion.Euler(0f, angle + 180f, 0f);
 
-                // Walls with nothing in them (no portal, window or corridor) are solid.
-                float opening = i == EntranceSide ? CorridorWidth : IsWindow(i) ? WindowWidth : worldIndex >= 0 ? OpeningWidth : 0f;
+                // Walls with nothing in them (no portal, window or corridor) are solid. A world's wall is cut in
+                // narrow upright strips so its opening follows the outline of that world's gate.
+                var spec = worldIndex >= 0 ? DreamPortalGates.SpecFor(Worlds[worldIndex].scene) : null;
+                float opening = i == EntranceSide ? CorridorWidth : IsWindow(i) ? WindowWidth : 0f;
                 float top = i == EntranceSide ? CorridorHeight : OpeningTop;
                 float pillarWidth = (sideLength - opening) * 0.5f;
                 float pillarX = opening * 0.5f + pillarWidth * 0.5f;
-                if (opening > 0f)
+                if (spec != null)
+                {
+                    const int strips = 64;
+                    float strip = sideLength / strips;
+                    for (int k = 0; k < strips; k++)
+                    {
+                        float x = -sideLength * 0.5f + (k + 0.5f) * strip;
+                        // The opening's top over this strip (the widest part of the strip, so nothing pokes into it).
+                        float edge = Mathf.Min(Mathf.Abs(x - strip * 0.5f), Mathf.Abs(x + strip * 0.5f));
+                        if (Mathf.Sign(x - strip * 0.5f) != Mathf.Sign(x + strip * 0.5f))
+                            edge = 0f;
+                        bool open = edge < spec.openingHalf;
+                        float cut = open ? Mathf.Max(spec.openingTop(edge), spec.openingTop(Mathf.Abs(x))) : 0f;
+                        float sill = open ? Mathf.Min(spec.openingBottom(edge), spec.openingBottom(Mathf.Abs(x))) : 0f;
+                        if (WallHeight - cut > 0.01f)
+                            Box("Wall Strip", wall.transform, mats.wall, new Vector3(x, (cut + WallHeight) * 0.5f, 0f), new Vector3(strip + 0.01f, WallHeight - cut, WallThickness));
+                        if (open && sill > 0.01f)
+                            Box("Wall Strip", wall.transform, mats.wall, new Vector3(x, sill * 0.5f, 0f), new Vector3(strip + 0.01f, sill, WallThickness));
+                    }
+                }
+                else if (opening > 0f)
                 {
                     Box("Left", wall.transform, mats.wall, new Vector3(-pillarX, WallHeight * 0.5f, 0f), new Vector3(pillarWidth, WallHeight, WallThickness));
                     Box("Right", wall.transform, mats.wall, new Vector3(pillarX, WallHeight * 0.5f, 0f), new Vector3(pillarWidth, WallHeight, WallThickness));
@@ -238,24 +261,16 @@ namespace DreamStudio.Editor
                 else if (worldIndex >= 0)
                 {
                     var world = Worlds[worldIndex];
-                    // No collider on the step so players can walk right up into the portal.
-                    Box("Step", wall.transform, mats.column, new Vector3(0f, PortalBase * 0.5f, 0.1f), new Vector3(opening, PortalBase, WallThickness + 0.2f), false);
-                    // The name sits high on the lintel, clear of the pieces bursting out of the portal's rim.
-                    var labelPos = new Vector3(0f, OpeningTop - PortalBase - PortalHalfHeight + 1.0f, WallThickness * 0.5f + 0.02f);
-                    var portal = CreatePortal(portals.transform, world.name, world.scene, world.scene, world.inner, world.outer, labelPos);
-                    portal.transform.position = wall.transform.TransformPoint(new Vector3(0f, PortalBase + PortalHalfHeight, 0f));
+                    // The portal fills its gate's shape; the name sits high on the wall, clear of the gate.
+                    var labelPos = new Vector3(0f, spec.labelHeight - spec.center, WallThickness * 0.5f + 0.02f);
+                    var portal = CreatePortal(portals.transform, world.name, world.scene, world.scene, world.inner, world.outer, labelPos, spec.half, spec.shape);
+                    portal.transform.position = wall.transform.TransformPoint(new Vector3(0f, spec.center, 0f));
                     portal.transform.rotation = wall.transform.rotation;
                     portal.arriveHere = true;
 
-                    // A recess behind the portal, and a border of the world's own things bursting out of its rim.
-                    DreamPortalGates.Build(wall.transform, portal.transform, worldIndex, opening, OpeningTop, WallThickness, PortalBase, mats.column);
+                    // A recess behind the portal, and the world's stone gate (steps, stones, glyphs, vines) around it.
+                    DreamPortalGates.Build(wall.transform, portal.transform, worldIndex, WallThickness, spec);
 
-                    // A banner in the world's colours on each side of the portal.
-                    for (int side = -1; side <= 1; side += 2)
-                    {
-                        Box("Banner", wall.transform, mats.portalRing[worldIndex], new Vector3(side * pillarX, 3.6f, WallThickness * 0.5f + 0.03f), new Vector3(1.3f, 3.4f, 0.04f), false);
-                        Box("Banner Rod", wall.transform, mats.trim, new Vector3(side * pillarX, 5.35f, WallThickness * 0.5f + 0.06f), new Vector3(1.6f, 0.06f, 0.06f), false);
-                    }
                 }
 
                 // A glowing sconce on each side of the window and the entrance (the world portals bring their own light).
@@ -472,20 +487,21 @@ namespace DreamStudio.Editor
             if (sun != null && sun.TryGetComponent<Light>(out var light))
             {
                 light.shadows = LightShadows.Soft;
-                light.color = new Color(0.82f, 0.76f, 1f);
-                light.intensity = 0.6f;
+                light.shadowStrength = 1f;
+                light.color = new Color(1f, 0.93f, 0.85f);
+                light.intensity = 0.9f;
                 sun.transform.rotation = Quaternion.Euler(55f, -30f, 0f);
             }
 
             RenderSettings.skybox = mats.sky;
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.55f, 0.45f, 0.85f);
-            RenderSettings.ambientEquatorColor = new Color(0.75f, 0.5f, 0.75f);
-            RenderSettings.ambientGroundColor = new Color(0.25f, 0.2f, 0.45f);
+            RenderSettings.ambientSkyColor = new Color(0.85f, 0.78f, 0.85f);
+            RenderSettings.ambientEquatorColor = new Color(0.95f, 0.82f, 0.76f);
+            RenderSettings.ambientGroundColor = new Color(0.7f, 0.62f, 0.6f);
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogColor = new Color(0.85f, 0.65f, 0.9f);
-            RenderSettings.fogDensity = 0.018f;
+            RenderSettings.fogColor = new Color(0.95f, 0.83f, 0.77f);
+            RenderSettings.fogDensity = 0.014f;
         }
 
         /// <summary>
